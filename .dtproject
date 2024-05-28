@@ -1,0 +1,5 @@
+TYPE=dtproject
+TYPE_VERSION=1
+VERSION=daffy
+TEMPLATE_VERSION=3
+DESCRIPTION=Repository for EECE5560 assignments and labs
