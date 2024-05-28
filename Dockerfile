@@ -1,6 +1,7 @@
+# Use the official ROS image as a base
 FROM ros:melodic-ros-core
 
-# Setup environment
+# Set environment variables
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 
 # Install dependencies
@@ -12,24 +13,13 @@ RUN apt-get update && apt-get install -y \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install ROS packages
-RUN apt-get update && apt-get install -y \
-    ros-melodic-ros-base \
-    && rm -rf /var/lib/apt/lists/*
-
-# Create workspace
+# Create a workspace
 RUN mkdir -p /home/ros/catkin_ws/src
 WORKDIR /home/ros/catkin_ws
 
 # Copy source files
 COPY ./src ./src
 
-# Build the workspace
-RUN /bin/bash -c "source /opt/ros/melodic/setup.bash && catkin_make"
-
-# Source the setup.bash file
-RUN echo "source /home/ros/catkin_ws/devel/setup.bash" >> ~/.bashrc
-
-# Set the default command to run when starting the container
+# Set up entrypoint
+ENTRYPOINT ["/ros_entrypoint.sh"]
 CMD ["bash"]
-
