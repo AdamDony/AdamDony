@@ -3,7 +3,10 @@ FROM ros:melodic-ros-core
 # Maintainer and Description
 LABEL maintainer="Adam Dony <nuradamdonyeeeruet@gmail.com>"
 LABEL description="Repository for EECE5560 assignments and labs"
+LABEL type="dtproject"
+LABEL type_version="1"
 LABEL version="daffy"
+LABEL template_version="3"
 
 # Setup environment
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
