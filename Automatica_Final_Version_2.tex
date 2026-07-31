@@ -1,0 +1,1829 @@
+\documentclass[final,5p,times,authoryear]{elsarticle}
+
+\usepackage{amsmath,amssymb,amsfonts}
+\usepackage{amsthm}
+\usepackage{graphicx}
+\usepackage{subfig}
+\usepackage{booktabs}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{textcomp}
+\usepackage[hidelinks]{hyperref}
+\usepackage{microtype}          % better justification; removes most overfulls
+\setlength{\emergencystretch}{2em} % last-resort stretch for math-heavy lines
+
+\usepackage{placeins}           % \FloatBarrier: keep every float before the Conclusion
+
+%% Float-placement tuning: allow the wide figure* floats to share a page
+%% top with text (up to three per page) so they are placed as soon as
+%% possible instead of drifting past the Conclusion.
+\setcounter{topnumber}{4}
+\setcounter{dbltopnumber}{3}
+\setcounter{totalnumber}{8}
+\renewcommand{\topfraction}{0.92}
+\renewcommand{\dbltopfraction}{0.92}
+\renewcommand{\textfraction}{0.07}
+\renewcommand{\floatpagefraction}{0.75}
+\renewcommand{\dblfloatpagefraction}{0.75}
+
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}{Lemma}
+\newtheorem{proposition}{Proposition}
+\theoremstyle{definition}
+\newtheorem{assumption}{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}{Remark}
+
+\journal{Automatica}
+
+%% Suppress the "Preprint submitted to Automatica <date>" first-page
+%% footer (keep only a centred page number).
+\makeatletter
+\def\ps@pprintTitle{%
+  \let\@oddhead\@empty
+  \let\@evenhead\@empty
+  \def\@oddfoot{\centerline{\thepage}}%
+  \let\@evenfoot\@oddfoot}
+\makeatother
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{Model-Free Low-and-High Gain Q-Learning for Discrete-Time
+Linear Systems with Actuator Saturation}
+
+\author[ttu]{Md~Nur-A-Adam~Dony}
+\author[ttu]{Syed~Ali~Asad~Rizvi\corref{cor}}
+\ead{srizvi@tntech.edu}
+\author[uva]{Zongli~Lin}
+\cortext[cor]{Corresponding author.}
+\address[ttu]{Department of Electrical and Computer Engineering,
+Tennessee Technological University, Cookeville, TN 38505, USA}
+\address[uva]{Charles L.~Brown Department of Electrical and Computer
+Engineering, University of Virginia, Charlottesville, VA 22903, USA}
+
+\begin{abstract}
+A reinforcement-learning route to low-and-high gain control is
+developed for discrete-time linear systems whose actuators saturate,
+covering state as well as output feedback and requiring no knowledge
+of the plant matrices.  Q-learning with a parameterized Riccati cost
+supplies the low-gain policy, and the central observation is that the
+converged Q-kernel already encodes---behind one Schur complement---the
+associated Lyapunov matrix, from which the largest control magnitude
+attainable anywhere on the Lyapunov level set is available in closed
+form.  A gain boost certified jointly for the actuator limits and for
+strict Lyapunov decrease, together with the exact stability margin of
+that boost, is then read off from a single scalar of the kernel; no
+identification step, further learning, or numerical search is
+involved.  The output-feedback extension reconstructs
+the state from a sliding window of past inputs and outputs, and the
+entire state-feedback pipeline transports under one
+information-preserving substitution: the Lyapunov-matrix inverse is
+replaced by the Moore--Penrose pseudoinverse of its rank-deficient
+extended counterpart.  Numerical experiments on a fourth-order
+benchmark validate both formulations and reveal a structural trade-off
+between gain-boost margin and pole-movement effectiveness, controlled
+by the rank of the cost weighting.
+\end{abstract}
+
+\begin{keyword}
+Reinforcement learning \sep Q-learning \sep actuator saturation \sep
+low-and-high gain feedback \sep model-free control \sep output feedback
+\end{keyword}
+
+\end{frontmatter}
+
+\section{Introduction}\label{sec:intro}
+%% ======================================================================
+
+Physical actuators deliver only bounded control effort, making input
+saturation one of the most pervasive nonlinearities in control
+practice.  For linear plants, global stabilizability by bounded inputs
+is characterized by asymptotic null-controllability
+(ANCBC)~\citep{SussmannSontagYang1994}, with the discrete-time theory
+in~\citep{YangSontagSussmann1997}.  Semi-global designs built on
+low-gain feedback~\citep{LinSaberi1993,Lin1998} keep the actuator
+inside its limits by letting the gain shrink toward zero, at the price
+of sluggish transients; low-and-high gain
+compensation~\citep{LinSaberi1995,HuLin2001} recovers speed by
+amplifying the low-gain law, and in discrete time the amplification is
+necessarily
+finite~\citep{LinSaberiStoorvogelMantri2000,WangGripSaberiJohansen2012}.
+The discrete-time constructions available to
+date~\citep{LinSaberiStoorvogelMantri2000} presuppose exact knowledge
+of the plant matrices.
+
+Data-driven synthesis removes this model dependence.  Within
+reinforcement learning~\citep{SuttonBarto2018,Bertsekas2019},
+Q-learning~\citep{WatkinsDayan1992} is attractive because the optimal
+policy is obtained directly from trajectories, with no identification
+stage~\citep{LewisVrabieVamvoudakis2012,JiangJiang2012,Kleinman1968}.
+For saturated discrete-time plants, however, the model-free schemes
+of~\citep{RizviLin2018CDC,RizviLin2019IJRNC,RizviLin2023book} verify
+the actuator constraint only \emph{pointwise}, at states that are
+already contracting; the resulting certificate is loose, most of the
+available control authority is left idle, and no low-and-high gain
+construction without a model has been reported
+(Table~\ref{tab:related_work}).
+
+
+
+Both restrictions are removed here, for state and for output
+feedback.  The point of departure is that a Schur complement of the
+converged Q-kernel reproduces the Lyapunov matrix of the low-gain
+design; from it, the largest control demanded anywhere on the
+invariant level set---and with it a boost bound certifying saturation
+avoidance jointly with strict Lyapunov decrease---comes out in closed
+form from one scalar of the kernel, without a model, further data, or
+search.  In the model-free setting, the resulting stability limit
+plays the role of the discrete-time constraint
+of~\citep{WangSaberiStoorvogelSannuti2012}.  On the output-feedback
+side we adopt the parameterization of \citet{RizviLin2023book}, in
+which a window of past inputs and outputs stands in for the state with
+no observer; the extended kernel inherits the $2\times2$ block form,
+and the complete state-feedback machinery carries over once the
+inverse of the Lyapunov matrix is exchanged for the Moore--Penrose
+pseudoinverse of its rank-deficient extended analogue---an exchange
+shown below to be lossless.
+
+\emph{Statement of novelty.}\ To the best of our knowledge, this is
+the first work to (i)~carry out a low-and-high gain design for
+discrete-time saturated systems entirely without a model, in state- as
+well as output-feedback form; (ii)~establish that one Schur complement
+of the learned Q-kernel delivers the Lyapunov matrix, and with it both
+a certified, closed-form boost $\rho^{*}$ and the exact stability
+limit $\rho_{\max}$, so that saturation avoidance and strict Lyapunov
+decrease are guaranteed with no identification, extra learning, or
+search; (iii)~establish the \emph{single-substitution
+principle} $P^{-1}\!\to\!\bar P^{\dagger}$, under which the entire
+state-feedback pipeline transports to output feedback with no loss of
+information; and (iv)~identify a structural \emph{cost-rank trade-off}
+between gain-boost margin and pole-movement effectiveness, set by the
+rank of the cost weighting.
+
+\emph{Relation to the conference version.}\ A preliminary version of
+the state-feedback results appeared in the conference
+paper~\citep{DonyRizviLin2026CDC}.  The present paper is a substantial
+extension: the entire output-feedback framework of
+Section~\ref{sec:proposed_of}---the state parameterization, the
+extended Q-kernel, and the pseudoinverse theory of
+Lemmas~\ref{lemma:Pbar} and~\ref{lemma:Ubar_max} and
+Theorem~\ref{thm:of_main}---the single-substitution principle, the
+cost-rank/pole-movement analysis of
+Section~\ref{sec:pole_movement}, and all output-feedback experiments
+are new; the state-feedback material is included in condensed form to
+keep the paper self-contained.
+
+\emph{Organization.}\ Section~\ref{sec:problem} reviews the setup and
+baseline Q-learning; Sections~\ref{sec:proposed_sf}
+and~\ref{sec:proposed_of} develop the state- and output-feedback
+extensions; Section~\ref{sec:results} reports results on a fourth-order
+benchmark; Section~\ref{sec:conclusion} concludes.
+
+\begin{table*}[t]
+\centering
+\caption{Comparison with related work.  All methods address actuator
+saturation; a check mark denotes the additional property.
+``Closed-form $\rho^{*}$'': an analytic high-gain parameter with no
+model and no search.}
+\label{tab:related_work}
+\small
+\begin{tabular}{lccccc}
+\toprule
+Approach & Model-free & Discrete-time & Low-\&-high gain & Output feedback & Closed-form $\rho^{*}$\\
+\midrule
+Lin \& Saberi (1995)  & $\times$ & $\times$ & $\checkmark$ & $\times$ & $\times$\\
+Lin et al.\ (2000)    & $\times$ & $\checkmark$ & $\checkmark$ & $\times$ & $\times$\\
+Wang et al.\ (2012)   & $\times$ & $\checkmark$ & $\checkmark$ & $\times$ & $\checkmark$\\
+Rizvi \& Lin (2023)   & $\checkmark$ & $\checkmark$ & $\times$ & $\checkmark$ & $\times$\\
+\textbf{This work}    & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$ & $\checkmark$\\
+\bottomrule
+\end{tabular}
+\end{table*}
+
+
+%% ======================================================================
+\section{Problem Formulation and Background}\label{sec:problem}
+%% ======================================================================
+
+\subsection{System Description and Assumptions}
+
+The plant is a discrete-time linear time-invariant system whose input
+saturates,
+\begin{equation}
+x_{k+1} = Ax_k + B\sigma(u_k),
+\label{eq:system}
+\end{equation}
+in which $x_k \in \mathbb{R}^n$ and $u_k \in \mathbb{R}^m$ denote the state and the
+input, and $\sigma : \mathbb{R}^m \to \mathbb{R}^m$ clips every input channel at the
+level $b > 0$.
+
+\begin{assumption}[ANCBC]\label{assum:ANCBC}
+The pair $(A, B)$ is stabilizable and all eigenvalues of $A$ lie on or
+inside the unit circle.
+\end{assumption}
+
+\subsection{Parameterized DARE and Low Gain Design}
+
+Low-gain feedback is generated by the $\gamma$-parameterized
+discrete-time algebraic Riccati equation (DARE),
+\begin{equation}
+A^\top\! PA - P + \gamma I
+  - A^\top\! PB(B^\top\! PB + I)^{-1}B^\top\! PA = 0,
+\label{eq:DARE}
+\end{equation}
+with low-gain parameter $\gamma \in (0,1]$; the associated feedback
+gain reads
+\begin{equation}
+K^*(\gamma)
+   = -(B^\top P^*(\gamma) B + I)^{-1} B^\top P^*(\gamma) A.
+\label{eq:optimal_gain}
+\end{equation}
+Assumption~\ref{assum:ANCBC} guarantees a unique solution
+$P^*(\gamma) \succ 0$, Schur stability of $A + BK^*(\gamma)$
+throughout $(0,1]$, and the defining low-gain
+limits~\citep{Lin1998}:
+\begin{align}
+\lim_{\gamma \to 0} P^*(\gamma) &= 0, \label{eq:P_limit} \\
+\lim_{\gamma \to 0} K^*(\gamma) &= 0. \label{eq:K_limit}
+\end{align}
+
+
+\subsection{Q-Function Formulation}
+
+Equation~\eqref{eq:DARE} is the Riccati equation of the LQR problem
+whose running cost is
+\begin{equation}
+r(x_k, u_k) = \gamma \|x_k\|^2 + \|u_k\|^2.
+\label{eq:stage_cost}
+\end{equation}
+The associated Q-function is quadratic,
+\begin{equation}
+Q(x_k, u_k) = z_k^\top H(\gamma)\, z_k,
+\quad z_k = \begin{bmatrix} x_k \\ u_k \end{bmatrix},
+\label{eq:Q_function}
+\end{equation}
+its kernel carrying the block form
+\begin{equation}
+H(\gamma)
+  = \begin{bmatrix} H_{xx} & H_{xu} \\ H_{ux} & H_{uu} \end{bmatrix}
+  = \begin{bmatrix}
+        \gamma I + A^\top\! PA & A^\top\! PB \\
+        B^\top\! PA            & I + B^\top\! PB
+    \end{bmatrix}.
+\label{eq:H_matrix}
+\end{equation}
+The optimal gain is read off as
+\begin{equation}
+K^*(\gamma) = -H_{uu}^{-1} H_{ux},
+\label{eq:K_from_H}
+\end{equation}
+in agreement with~\eqref{eq:optimal_gain}.
+
+\subsection{Model-Free Q-Learning}\label{sec:qlearning}
+
+The kernel obeys the Bellman relation
+\begin{equation}
+z_k^\top H z_k = \gamma\|x_k\|^2 + \|u_k\|^2 + z_{k+1}^\top H z_{k+1},
+\label{eq:Bellman}
+\end{equation}
+an equation linear in the $s = (n{+}m)(n{+}m{+}1)/2$ distinct entries
+of the symmetric $H$, so $L \geq s$ excited tuples
+$\{(x_k, u_k, x_{k+1})\}$ determine $H$ by least squares with $(A,B)$
+never appearing~\citep{RizviLin2018CDC,RizviLin2023book}; policy
+iteration~\citep{Kleinman1968} interleaves this evaluation with the
+update $K = -H_{uu}^{-1}H_{ux}$.
+
+Once learning has converged, the baseline design certifies the
+actuator constraint only along the realized trajectory,
+\begin{equation}
+\max_{k = 0,1,\ldots} \|K^*(\gamma) x_k\|_\infty \leq b.
+\label{eq:pointwise_check}
+\end{equation}
+halving $\gamma$ and relearning whenever~\eqref{eq:pointwise_check}
+fails.  A contracting trajectory, however, says nothing about the
+worst case over the invariant set, so $\gamma$ ends up far smaller
+than necessary and the loop correspondingly slow.
+
+\subsection{Notation}\label{sec:notation}
+
+Throughout, bars mark output-feedback quantities
+(Section~\ref{sec:proposed_of}): each state-feedback symbol $X$ has
+the analogue $\bar X$, and the scalar parameters
+$\rho_{\mathrm{sat}}, \rho_{\mathrm{opt}}, \rho^{*}$ are shared, their
+defining formulas carrying over verbatim.
+
+
+
+%% ===================== END PART 2 (Sections I and II) =================
+%% Next: Part 3 -- Section III (State-Feedback Low-and-High Gain
+%% Extension): Lemmas, Propositions, Theorem, Algorithm, and figures.
+
+%% =====================================================================
+\section{State-Feedback Low-and-High Gain Extension}
+\label{sec:proposed_sf}
+%% =====================================================================
+
+We now build the high-gain layer from the learned kernel and nothing
+else.  Fig.~\ref{fig:pipeline} traces the route: the blocks of $H$
+deliver $P$ and $K$; two boost limits are then evaluated
+independently---$\rho_{\mathrm{sat}}$ from the actuator geometry and
+$\rho_{\mathrm{opt}}$ from the Lyapunov decrease---and the smaller of
+the two fixes $K_{\mathrm{high}} = (1+\rho^*)K$.  At no point do
+$(A,B)$ enter.
+
+\begin{figure}[!htb]
+\centering
+\includegraphics[width=\linewidth]{fig/pipeline_figure_v2.pdf}
+\caption{The model-free boost pipeline.  Two independent branches
+leave the Q-kernel $H$: the upper one passes through $P$, $c$, and
+$U_{\max}$ to the saturation limit $\rho_{\mathrm{sat}}$; the lower
+one reads $\lambda_{\max}(H_{uu})$ and returns the decrease-margin
+maximizer $\rho_{\mathrm{opt}}$---to be distinguished from the
+stability limit $\rho_{\max}$ of~\eqref{eq:rho_max}.  The smaller of
+the two fixes $\rho^{*}$ and with it
+$K_{\mathrm{high}} = (1+\rho^{*})K$.}
+\label{fig:pipeline}
+\end{figure}
+
+\subsection{Extraction of the Lyapunov Matrix}\label{sec:P_extraction}
+
+\begin{lemma}[Schur Complement Extraction]\label{lemma:P}
+Let $H(\gamma)$ be the Q-function kernel with structure
+\eqref{eq:H_matrix}.  Then the DARE solution satisfies
+\begin{equation}
+P(\gamma) = H_{xx} - H_{xu}\, H_{uu}^{-1}\, H_{ux}.
+\label{eq:P_from_H}
+\end{equation}
+\end{lemma}
+
+\begin{proof}
+From the block structure~\eqref{eq:H_matrix},
+\begin{align}
+H_{xx} &= \gamma I + A^\top PA, \label{eq:Hxx_expand} \\
+H_{xu} &= A^\top PB,             \label{eq:Hxu_expand} \\
+H_{uu} &= I + B^\top PB.         \label{eq:Huu_expand}
+\end{align}
+Rewriting the DARE~\eqref{eq:DARE} as
+$A^\top PA - A^\top PB(I + B^\top PB)^{-1}B^\top PA = P - \gamma I$
+and substituting,
+\begin{align}
+H_{xx} - H_{xu}\, H_{uu}^{-1}\, H_{ux}
+  &= \gamma I + A^\top PA \notag \\
+  &\quad - A^\top PB(I + B^\top PB)^{-1}B^\top PA \notag \\
+  &= \gamma I + (P - \gamma I) = P. \qedhere
+\end{align}
+\end{proof}
+
+Because $H$ itself is learned without $(A,B)$,
+identity~\eqref{eq:P_from_H} hands the low-gain Lyapunov
+matrix~\citep{Lin1998} over directly from data.
+
+\subsection{Maximum Control over the Lyapunov Level Set}
+\label{sec:Umax}
+
+For the learned $P$ and a given $x_0$, the sublevel set
+\begin{equation}
+\mathcal{L}_V(c) = \{x \in \mathbb{R}^n : x^\top P x \leq c\},
+\quad c = x_0^\top P x_0,
+\end{equation}
+is forward invariant under the LQR policy.  Sizing the admissible
+boost requires the largest control the feedback can request anywhere
+on this set.
+
+\begin{lemma}[Worst-Case Control Magnitude]\label{lemma:Umax}
+Given $K \in \mathbb{R}^{m \times n}$, $P > 0$, and $c = x_0^\top Px_0$, the
+maximum control magnitude over $\mathcal{L}_V(c)$ is
+\begin{equation}
+U_{\max} = \sqrt{c \cdot \lambda_{\max}(K P^{-1} K^\top)}.
+\label{eq:Umax}
+\end{equation}
+\end{lemma}
+
+\begin{proof}
+We seek $U_{\max} = \max_{x^\top Px \leq c} \|Kx\|_2$.
+
+\textit{Step~1 (Coordinate transformation).}  As $P \succ 0$, the
+substitution $y = P^{1/2}x$ (so $x = P^{-1/2}y$) turns the ellipsoidal
+constraint into a ball:
+\begin{equation}
+x^\top Px = y^\top P^{-1/2} P P^{-1/2} y = y^\top y = \|y\|^2 \leq c.
+\end{equation}
+
+\textit{Step~2 (Quadratic form).}  The objective becomes
+\begin{align}
+\|Kx\|^2 &= \|KP^{-1/2}y\|^2 \notag \\
+          &= y^\top
+             \underbrace{P^{-1/2}K^\top K P^{-1/2}}_{\Gamma}\, y.
+\end{align}
+
+\textit{Step~3 (Maximization over ball).}  The maximum of
+$y^\top \Gamma y$ subject to $\|y\|^2 \leq c$ is
+\begin{equation}
+\max_{\|y\|^2 \leq c} y^\top \Gamma y = c \cdot \lambda_{\max}(\Gamma),
+\end{equation}
+the maximizer $y^* = \sqrt{c}\, v_1$ lying along the top eigenvector
+$v_1$ of $\Gamma$.
+
+\textit{Step~4 (Eigenvalue invariance).}  Since $MN$ and $NM$ share
+their nonzero spectrum for compatibly sized $M$, $N$,
+\begin{align}
+\lambda_{\max}(\Gamma)
+  &= \lambda_{\max}(P^{-1/2}K^\top K P^{-1/2}) \notag \\
+  &= \lambda_{\max}(K P^{-1/2} P^{-1/2} K^\top) \notag \\
+  &= \lambda_{\max}(K P^{-1} K^\top).
+\end{align}
+Combining,
+$U_{\max} = \sqrt{c \cdot \lambda_{\max}(KP^{-1}K^\top)}$.
+\end{proof}
+
+Every ingredient of~\eqref{eq:Umax} is already at hand from $H$ and
+$x_0$; the geometry of the proof is sketched in
+Fig.~\ref{fig:ellipsoid}.
+
+\begin{figure}[!htb]
+\centering
+\includegraphics[width=\linewidth]{fig/ellipsoid_transform.pdf}
+\caption{Lemma~\ref{lemma:Umax}: $y = P^{1/2}x$ maps the level-set
+ellipsoid to the ball $\|y\|^2 \leq c$; the maximizer aligns with the
+leading eigenvector of $\Gamma$.}
+\label{fig:ellipsoid}
+\end{figure}
+
+
+
+\subsection{Saturation Bound}\label{sec:rho_sat}
+
+In the spirit of \citet{LinSaberi1995}, the learned low-gain action
+$u_{\mathrm{L}} = Kx_k$ is augmented by the high-gain term
+$u_{\mathrm{H}} = \rho\,Kx_k$, $\rho \geq 0$:
+\begin{equation}
+u = u_{\mathrm{L}} + u_{\mathrm{H}}
+  = (1+\rho)\, Kx_k = K_{\mathrm{high}}\, x_k,
+\label{eq:u_combined}
+\end{equation}
+so that $K_{\mathrm{high}} = (1+\rho)K$ and $\rho = 0$ returns the
+baseline.  Worst-case magnitudes scale with $(1+\rho)$,
+\begin{equation}
+\max_{x \in \mathcal{L}_V(c)} \|K_{\mathrm{high}}\, x\|_2
+  = (1+\rho)\, U_{\max},
+\label{eq:boosted_Umax}
+\end{equation}
+and imposing $(1+\rho)\, U_{\max} \leq b$ gives
+\begin{equation}
+\rho \leq \frac{b}{U_{\max}} - 1.
+\label{eq:sat_derivation}
+\end{equation}
+
+\begin{proposition}[Saturation Bound]\label{prop:rho_sat}
+Define
+\begin{equation}
+\rho_{\mathrm{sat}} = \frac{b}{U_{\max}} - 1.
+\label{eq:rho_sat}
+\end{equation}
+If $\rho_{\mathrm{sat}} > 0$ (i.e., $U_{\max} < b$), then for any
+$\rho \in [0, \rho_{\mathrm{sat}}]$,
+\begin{equation}
+\|(1+\rho)Kx\|_2 \leq b, \quad \forall\, x \in \mathcal{L}_V(c).
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+For any $x \in \mathcal{L}_V(c)$, Lemma~\ref{lemma:Umax} gives
+$\|Kx\|_2 \leq U_{\max}$.  Then
+\begin{align}
+\|(1+\rho)Kx\|_2 &= (1+\rho)\|Kx\|_2 \notag \\
+                  &\leq (1+\rho)\, U_{\max} \notag \\
+                  &\leq \frac{b}{U_{\max}} \cdot U_{\max} = b,
+\end{align}
+the final step using $\rho \leq \rho_{\mathrm{sat}}$; the bound is
+tight at $\rho = \rho_{\mathrm{sat}}$.
+\end{proof}
+
+\subsection{Lyapunov Decrease Bound}\label{sec:lyapunov}
+
+Respecting the actuator limit is not the same as remaining stable:
+too aggressive a boost can drive $V(x) = x^\top Px$ upward.  We
+therefore characterize, for arbitrary $m \geq 1$ and purely in terms
+of the kernel, the range of $\rho$ on which $V$ strictly decreases
+under $u_k = (1+\rho)Kx_k$ of~\eqref{eq:u_combined}.
+
+The two Bellman facts $V(x_k) = Q(x_k,Kx_k)$ and
+$V(x_{k+1}) = Q(x_k,u_k) - \gamma\|x_k\|^2 - \|u_k\|^2$, differenced
+at $u_k = (1+\rho)Kx_k$, give
+\begin{equation}
+V(x_k) - V(x_{k+1})
+   = \Delta Q + \gamma\|x_k\|^2 + (1+\rho)^2\|Kx_k\|^2,
+\label{eq:V_diff}
+\end{equation}
+in which, expanding the quadratic form of $Q$ and invoking
+$H_{xu} = -K^\top H_{uu}$ (a consequence of $K = -H_{uu}^{-1}H_{ux}$
+together with symmetry),
+\begin{align}
+\Delta Q
+   &= Q(x,Kx) - Q\bigl(x,(1{+}\rho)Kx\bigr) \notag\\
+   &= -2\rho\,x^\top\! H_{xu}Kx \notag\\
+   &\quad {}+ \bigl[1-(1{+}\rho)^2\bigr](Kx)^\top\! H_{uu}(Kx) \notag\\
+   &= -\rho^2\,(Kx)^\top\! H_{uu}\,(Kx).
+\label{eq:DeltaQ_final}
+\end{align}
+Insertion into~\eqref{eq:V_diff}, with the $\|Kx_k\|^2$ term
+absorbed, gives
+\begin{equation}
+V(x_k) - V(x_{k+1})
+   = \gamma\|x_k\|^2 + (Kx_k)^\top \Lambda(\rho)\,(Kx_k),
+\label{eq:lyap_decrease}
+\end{equation}
+with the \emph{Lyapunov-decrease indicator}
+\begin{equation}
+\boxed{\,\Lambda(\rho) \triangleq (1+\rho)^2 I_m - \rho^2 H_{uu}.\,}
+\label{eq:Lambda}
+\end{equation}
+Positivity of $\Lambda(\rho)$ is the stability requirement.  Every
+eigenvalue $\lambda_i(H_{uu})$ contributes
+$(1+\rho)^2 - \rho^2\lambda_i(H_{uu})$ to the spectrum of
+$\Lambda(\rho)$, and since $H_{uu} = I + B^\top PB$ forces
+$\bar\lambda \triangleq \lambda_{\max}(H_{uu}) > 1$, the smallest of
+these is
+\begin{equation}
+\lambda_{\min}\!\big(\Lambda(\rho)\big)
+   = (1+\rho)^2 - \rho^2\bar\lambda \;\triangleq\; f(\rho),
+\label{eq:Lambda_min}
+\end{equation}
+a concave parabola through $f(0) = 1$ (Fig.~\ref{fig:lambda}).  The
+parabola carries two separate pieces of information, and the
+distinction matters.  Its positive root, obtained from
+$1 + \rho = \rho\sqrt{\bar\lambda}$, marks where the certificate
+expires:
+\begin{equation}
+\Lambda(\rho) \succ 0
+   \;\iff\;
+   \rho < \rho_{\max} \triangleq \frac{1}{\sqrt{\bar\lambda} - 1};
+\label{eq:rho_max}
+\end{equation}
+only there---not at $\rho_{\mathrm{opt}}$ below---is stability at
+stake.  Its vertex, from $df/d\rho = 0$, locates the strongest
+certificate and its height,
+\begin{equation}
+\rho_{\mathrm{opt}} \triangleq \frac{1}{\bar\lambda - 1},
+\qquad
+f(\rho_{\mathrm{opt}}) = \frac{\bar\lambda}{\bar\lambda - 1}
+   = 1 + \rho_{\mathrm{opt}}.
+\label{eq:rho_opt}
+\end{equation}
+As $\bar\lambda - 1 > \sqrt{\bar\lambda} - 1$,
+\begin{equation}
+0 < \rho_{\mathrm{opt}} < \rho_{\max},
+\label{eq:rho_order}
+\end{equation}
+the maximizer is interior to the admissible range, and monotonicity
+of $f$ on $[0,\rho_{\mathrm{opt}}]$ yields $f(\rho) \geq f(0) = 1$
+there.  Selecting $\rho_{\mathrm{opt}}$ is thus a \emph{performance}
+decision---it delivers the strongest certified decrease---rather than
+a stability necessity: Case~1 of Section~\ref{sec:results} has
+$\rho_{\mathrm{opt}} = 2.31$ versus $\rho_{\max} = 5.07$, and every
+intermediate $\rho$ remains stable, with a certificate thinning to
+zero toward $\rho_{\max}$.
+
+\begin{figure}[!htb]
+\centering
+\includegraphics[width=\linewidth]{fig/lambda_figure_fixed.pdf}
+\caption{Spectrum of $\Lambda(\rho)$: every $\lambda_i(H_{uu})$
+traces the parabola $(1+\rho)^2 - \rho^2\lambda_i(H_{uu})$, all
+passing through $1$ at $\rho = 0$, with
+$\bar\lambda = \lambda_{\max}(H_{uu})$ the binding one.  The
+certificate holds precisely on $[0,\rho_{\max})$,
+$\rho_{\max} = 1/(\sqrt{\bar\lambda}-1)$~\eqref{eq:rho_max}, while the
+design operates at the interior vertex
+$\rho_{\mathrm{opt}} = 1/(\bar\lambda-1)$~\eqref{eq:rho_opt}; for
+$m = 1$ a single parabola survives.}
+\label{fig:lambda}
+\end{figure}
+
+\begin{proposition}[Selection of the High Gain Parameter]\label{prop:rho_star}
+Define
+\begin{equation}
+\rho^* = \max\!\big(0,\; \min(\rho_{\mathrm{sat}},\,
+        \rho_{\mathrm{opt}})\big),
+\quad \rho_{\mathrm{opt}} = \frac{1}{\lambda_{\max}(H_{uu})-1}.
+\label{eq:rho_star}
+\end{equation}
+Then $K_{\mathrm{high}} = (1+\rho^*)K$ satisfies:
+\begin{enumerate}
+\item[(a)] Saturation avoidance:
+   $\|K_{\mathrm{high}} x\| \leq b$, $\forall\, x \in \mathcal{L}_V(c)$;
+\item[(b)] Lyapunov decrease: $\Lambda(\rho^*) \succ 0$, giving
+   $V(x_k) - V(x_{k+1})
+     = \gamma\|x_k\|^2
+     + (Kx_k)^\top \Lambda(\rho^*)(Kx_k) > 0$
+   for all $x_k \neq 0$;
+\item[(c)] Model-free: all quantities computed from $H$ and $x_0$.
+\end{enumerate}
+\end{proposition}
+
+\subsection{Stability Guarantee}\label{sec:stability}
+
+\begin{theorem}[Model-Free High-Gain Stabilization]\label{thm:main}
+Under Assumption~\ref{assum:ANCBC}, let $H(\gamma)$ be the converged
+Q-kernel, with $K = -H_{uu}^{-1} H_{ux}$,
+$P = H_{xx} - H_{xu} H_{uu}^{-1} H_{ux}$, $c = x_0^\top P x_0$,
+$U_{\max} = \sqrt{c\,\lambda_{\max}(KP^{-1}K^\top)}$,
+$\rho_{\mathrm{sat}} = b/U_{\max} - 1$,
+$\rho_{\mathrm{opt}} = 1/(\lambda_{\max}(H_{uu}) - 1)$, and
+$\rho^{*} = \max\!\big(0, \min(\rho_{\mathrm{sat}},
+\rho_{\mathrm{opt}})\big)$ (equivalently, Algorithm~\ref{alg:sf}).  If
+$\rho^{*} > 0$, the controller $K_{\mathrm{high}} = (1+\rho^{*})K$
+guarantees:
+\begin{enumerate}
+\item[(a)] \textbf{Saturation avoidance:}
+   $\|K_{\mathrm{high}} x_k\|_\infty \leq b$ for all
+   $x_k \in \mathcal{L}_V(c)$;
+\item[(b)] \textbf{Asymptotic stability:}
+   $V(x_{k+1}) < V(x_k)$ for all $x_k \neq 0$ in $\mathcal{L}_V(c)$;
+\item[(c)] \textbf{Positive invariance:} $\mathcal{L}_V(c)$ is
+   positively invariant.
+\end{enumerate}
+Moreover, for any bounded set of initial conditions, there exists a
+sufficiently small $\gamma$ with $\rho^{*} > 0$ (semi-global
+stabilization).
+\end{theorem}
+
+\begin{proof}
+\emph{(a) Saturation avoidance.}  Fix $x_k \in \mathcal{L}_V(c)$.
+Lemma~\ref{lemma:Umax} bounds $\|Kx_k\|_2$ by $U_{\max}$, and with
+$u_k = (1+\rho^*)Kx_k$ and $\rho^* \leq \rho_{\mathrm{sat}} =
+b/U_{\max}-1$,
+\begin{equation}
+\|u_k\|_\infty \leq \|u_k\|_2 = (1+\rho^*)\|Kx_k\|_2
+   \leq (1+\rho_{\mathrm{sat}})U_{\max} = b,
+\end{equation}
+and the saturation never engages on $\mathcal{L}_V(c)$.
+
+\emph{(b) Asymptotic stability.}  Saturation being inactive, the
+identity of Section~\ref{sec:lyapunov} applies:
+$V(x_k) - V(x_{k+1}) =
+\gamma\|x_k\|^2 + (Kx_k)^\top\Lambda(\rho^*)(Kx_k)$.  The
+ordering~\eqref{eq:rho_order} places $\rho^* \leq \rho_{\mathrm{opt}}$
+inside the monotone range of $f$, so by~\eqref{eq:Lambda_min}
+$\lambda_{\min}(\Lambda(\rho^*)) = f(\rho^*) \geq f(0) = 1$ and
+$\Lambda(\rho^*) \succeq I_m \succ 0$; as $\gamma > 0$, the right-hand
+side is positive whenever $x_k \neq 0$, hence
+$V(x_{k+1}) < V(x_k)$.
+
+\emph{(c) Positive invariance.}  Monotonicity of $V$ gives
+$V(x_{k+1}) < V(x_k) \leq c$, hence $x_{k+1} \in \mathcal{L}_V(c)$.
+
+\emph{Semi-global property.}  The limit $P \to 0$ does not by itself
+force $U_{\max} \to 0$, because~\eqref{eq:Umax} contains $P^{-1}$ as
+well; we bound $U_{\max}$ through $c$ instead.  At the optimal gain,
+with $A_{\mathrm{cl}} = A + BK$, the DARE~\eqref{eq:DARE} takes the
+closed-loop form
+\begin{equation}
+A_{\mathrm{cl}}^\top P A_{\mathrm{cl}} - P
+   = -\bigl(\gamma I + K^\top\! K\bigr),
+\label{eq:cl_lyap}
+\end{equation}
+whence $K^\top\! K \preceq P$ and
+$\|Kx\|_2^2 \leq x^\top\! Px \leq c$ across the level set, so that
+$U_{\max} \leq \sqrt{c} = \sqrt{x_0^\top P(\gamma)\,x_0}$ and
+$\lambda_{\max}(KP^{-1}K^\top) \leq 1$.  As $c \to 0$
+by~\eqref{eq:P_limit}, $U_{\max}(\gamma)$ vanishes uniformly on
+bounded sets of initial states, $\rho_{\mathrm{sat}} \to \infty$, and
+$\rho^* = \rho_{\mathrm{opt}} > 0$ is eventually reached---located
+automatically by the $\gamma$-schedule.
+\end{proof}
+
+\subsection{Algorithm}\label{sec:algorithm}
+
+Algorithm~\ref{alg:sf} collects the procedure; Lines~4--11 are
+algebra on the converged kernel, so the boost costs no further data or
+learning.  The $\gamma$-schedule accepts only when
+$\rho_{\mathrm{sat}} > 0$, i.e., $U_{\max} < b$---a condition over the
+whole invariant set that, by
+$\max_k\|Kx_k\|_\infty \leq U_{\max}$,
+subsumes the trajectory test~\eqref{eq:pointwise_check} without the
+converse holding.
+
+\begin{algorithm}[!htb]
+\caption{Model-Free Low-and-High Gain Q-Learning (State Feedback)}
+\label{alg:sf}
+{\footnotesize
+\begin{algorithmic}[1]
+\Require $x_0$, limit $b$, initial $\gamma$, tolerance $\epsilon$
+\Ensure  high-gain controller $K_{\mathrm{high}}$
+\State Initialize stabilizing $K^0$;\ $\gamma_c \leftarrow \gamma$
+\Repeat
+    \State Run PI at $\gamma_c$ until $\|H^j - H^{j-1}\| < \epsilon$
+    \State $K \leftarrow -H_{uu}^{-1}H_{ux}$
+    \State $P \leftarrow H_{xx} - H_{xu}H_{uu}^{-1}H_{ux}$
+    \State $c \leftarrow x_0^\top Px_0$
+    \State $U_{\max} \leftarrow \sqrt{c\,\lambda_{\max}(KP^{-1}K^\top)}$
+    \State $\rho_{\mathrm{sat}} \leftarrow b/U_{\max} - 1$
+    \State $\rho_{\mathrm{opt}} \leftarrow 1/(\lambda_{\max}(H_{uu})-1)$
+    \State $\rho^* \leftarrow \max(0,\min(\rho_{\mathrm{sat}},\rho_{\mathrm{opt}}))$
+    \State $K_{\mathrm{high}} \leftarrow (1+\rho^*)K$
+    \If{$\rho_{\mathrm{sat}} \leq 0$}\Comment{$U_{\max}\!\geq\! b$: invariant-set test}
+    \State $\gamma_c \leftarrow \gamma_c/2$ \EndIf
+\Until{$\rho_{\mathrm{sat}} > 0$}
+\State \Return $K_{\mathrm{high}}$, $\rho^*$, $\gamma_c$
+\end{algorithmic}}
+\end{algorithm}
+
+%% =====================================================================
+\section{Output-Feedback Low-and-High Gain Extension}\label{sec:proposed_of}
+%% =====================================================================
+
+We extend the framework of Section~\ref{sec:proposed_sf} to output
+feedback, where only the input--output history is available and $x_k$
+is not measured.  The entire SF pipeline transports once $x_k$ is
+replaced by an extended history vector and $P^{-1}$ by the
+Moore--Penrose pseudoinverse $\bar P^{\dagger}$, with $(A,B,C)$ never
+appearing.  Two lemmas carry the new content: a Schur identity
+extracting the rank-deficient extended Lyapunov matrix $\bar P$ from the
+learned kernel (Lemma~\ref{lemma:Pbar}), and a level-set identity
+showing the worst-case-control formula survives the rank deficiency
+(Lemma~\ref{lemma:Ubar_max}).  We use the
+state-parameterization of~\citet{RizviLin2023book}, which requires
+neither a separate observer nor discounting.
+
+\subsection{System Description with Output Measurements}
+\label{sec:of_system}
+
+We augment the system~\eqref{eq:system} with a measurement equation,
+\begin{align}
+x_{k+1} &= A\,x_k + B\,\sigma(u_k), \label{eq:of_system_x}\\
+y_k     &= C\,x_k, \label{eq:of_system_y}
+\end{align}
+where $y_k \in \mathbb{R}^p$ is the measured output and the saturation function
+$\sigma$ acts component-wise with limit $b > 0$ as before.
+
+\begin{assumption}[Observability]\label{assum:obs}
+The pair $(A, C)$ is observable.
+\end{assumption}
+
+Together with Assumption~\ref{assum:ANCBC}, this is the standard
+setting for output-feedback Q-learning of saturated systems.
+
+\subsection{State Parameterization via Input/Output Histories}
+\label{sec:of_param}
+
+Without the system matrices a Luenberger observer is unavailable, but
+stacking past inputs and outputs with a dead-beat parameterization
+recovers the state exactly~\citep{RizviLin2023book}; the result we need
+is the following.
+
+\begin{lemma}[State parameterization]
+\label{lem:state_param}
+Let $(A, C)$ be observable and let $N \leq n$ be an upper bound on the
+observability index of $(A, C)$.  Define the past-input and
+past-output histories
+\begin{align}
+\bar u_{k-1, k-N}
+   &= \begin{bmatrix} u_{k-1}^{\!\top} & u_{k-2}^{\!\top}
+                      & \cdots & u_{k-N}^{\!\top} \end{bmatrix}^{\!\top}
+      \in \mathbb{R}^{mN}, \label{eq:past_u}\\[2pt]
+\bar y_{k-1, k-N}
+   &= \begin{bmatrix} y_{k-1}^{\!\top} & y_{k-2}^{\!\top}
+                      & \cdots & y_{k-N}^{\!\top} \end{bmatrix}^{\!\top}
+      \in \mathbb{R}^{pN}. \label{eq:past_y}
+\end{align}
+Then there exist constant matrices $W_u \in \mathbb{R}^{n \times mN}$ and
+$W_y \in \mathbb{R}^{n \times pN}$ such that, for all $k \geq N$,
+\begin{equation}
+x_k = W_u\,\bar u_{k-1, k-N} + W_y\,\bar y_{k-1, k-N}.
+\label{eq:state_param}
+\end{equation}
+The matrices $W_u, W_y$ depend on $(A, B, C)$ and on the dead-beat
+horizon $N$, but the relation~\eqref{eq:state_param} is exact (not
+asymptotic) for $k \geq N$.
+\end{lemma}
+
+Combine the histories into an \emph{extended state}
+\begin{equation}
+\xi_k \;\triangleq\;
+   \begin{bmatrix} \bar u_{k-1, k-N} \\[2pt] \bar y_{k-1, k-N} \end{bmatrix}
+   \in \mathbb{R}^{(m+p)N},
+\label{eq:xi_def}
+\end{equation}
+and the matrices into a \emph{state-recovery matrix}
+\begin{equation}
+W \;\triangleq\;
+   \begin{bmatrix} W_u & W_y \end{bmatrix}
+   \in \mathbb{R}^{n \times (m+p)N}.
+\label{eq:W_def}
+\end{equation}
+so Lemma~\ref{lem:state_param} reads
+\begin{equation}
+x_k = W\,\xi_k, \quad k \geq N.
+\label{eq:state_param_compact}
+\end{equation}
+Since $(m+p)N \gg n$ in general, $W$ is wide with
+$\mathrm{rank}\,W \leq n$; under the rank conditions
+of~{\citep[Theorems~2.3, 2.4]{RizviLin2023book}} it has full row rank
+$n$, which we assume.
+
+\begin{assumption}[Full row rank of $W$]\label{assum:W_rank}
+The state-recovery matrix $W \in \mathbb{R}^{n \times (m+p)N}$ has full row
+rank, $\mathrm{rank}\,W = n$.
+\end{assumption}
+
+\subsection{Output-Feedback Parameterized DARE and Q-Function}
+\label{sec:of_q}
+
+The conventional state-feedback LQR cost~\eqref{eq:stage_cost} weights
+the full state, which is unavailable.  Following~\citep{RizviLin2023book},
+we instead weight only the measured output:
+\begin{equation}
+r(x_k, u_k)
+   = \gamma\,y_k^{\!\top}\!y_k + u_k^{\!\top}\!u_k
+   = \gamma\,x_k^{\!\top} C^{\!\top}\!C\,x_k + u_k^{\!\top}\!u_k.
+\label{eq:of_stage_cost}
+\end{equation}
+The corresponding state weighting matrix is
+$Q = \gamma\,C^{\!\top}\!C \in \mathbb{R}^{n \times n}$, which has rank at most
+$p$ (and rank exactly one for the single-output case $p = 1$).  The OF
+parameterized DARE is then
+\begin{equation}
+\begin{aligned}
+&A^{\!\top}\!P A - P + \gamma\,C^{\!\top}\!C \\
+&\qquad - A^{\!\top}\!PB\,(B^{\!\top}\!PB + I)^{-1}\,B^{\!\top}\!PA = 0,
+\end{aligned}
+\label{eq:of_dare}
+\end{equation}
+which has the same structure as the SF DARE~\eqref{eq:DARE} with
+$\gamma I$ replaced by $\gamma\,C^{\!\top}\!C$.  Under
+Assumptions~\ref{assum:ANCBC}, \ref{assum:obs}, and~\ref{assum:W_rank},
+the unique positive definite solution $P^{*}(\gamma)$ exists, the
+closed-loop matrix $A + B K^{*}(\gamma)$ is Schur stable for all
+$\gamma \in (0, 1]$, and the low-gain limit~\eqref{eq:P_limit}--%
+\eqref{eq:K_limit} continues to hold.
+
+\paragraph{Extended Q-function.}
+Substituting $x_k = W\,\xi_k$
+\eqref{eq:state_param_compact} into the SF Q-function
+$Q = z_k^{\!\top}\!H z_k$ \eqref{eq:Q_function}, i.e., $z_k = T\bar z_k$
+with $T = \operatorname{diag}(W, I_m)$ and
+$\bar z_k = [\xi_k^{\!\top}, u_k^{\!\top}]^{\!\top}$, gives for
+$k \geq N$ the extended form $Q = \bar z_k^{\!\top}\bar H\bar z_k$ with
+\begin{equation}
+\bar H \triangleq T^{\!\top} H\, T
+   = \begin{bmatrix} \bar H_{\xi\xi} & \bar H_{\xi u} \\
+                     \bar H_{u\xi}   & \bar H_{uu} \end{bmatrix},
+\label{eq:Hbar_def}
+\end{equation}
+the \emph{extended Q-kernel}, whose blocks are the SF blocks with each
+$x$-factor transformed by $W$ (the pure-$u$ block unchanged):
+\begin{align}
+\bar H_{\xi\xi}
+   &= W^{\!\top}\!\bigl(\gamma\,C^{\!\top}\!C + A^{\!\top}\!PA\bigr)W,
+   \label{eq:Hbar_xixi}\\
+\bar H_{\xi u}
+   &= W^{\!\top}\!A^{\!\top}\!PB = \bar H_{u\xi}^{\!\top},\\
+\bar H_{uu}
+   &= I + B^{\!\top}\!PB. \label{eq:Hbar_uu}
+\end{align}
+
+Three features are immediate from~\eqref{eq:Hbar_xixi}--\eqref{eq:Hbar_uu}.
+First, $\bar H$ has the \emph{same $2\times2$ block form} as the SF
+kernel~\eqref{eq:H_matrix} with $\xi_k$ in place of $x_k$, so the
+substitution $x\mapsto\xi$, $H\mapsto\bar H$ carries the SF identities to
+the OF setting.  Second, $\bar H_{uu} = I + B^{\!\top}\!PB$ is identical
+in \emph{form} to the SF $H_{uu}$---which is what lets the entire
+Lyapunov-decrease analysis transport unchanged---but not in \emph{value}:
+here $P$ solves the OF DARE~\eqref{eq:of_dare} with rank-deficient cost
+$Q=\gamma\,C^{\!\top}\!C$, and Riccati monotonicity
+($\gamma I \succeq \gamma\,C^{\!\top}\!C \Rightarrow P^{SF}\succeq P^{OF}$)
+predicts $\rho_{\mathrm{opt}}^{OF} \geq \rho_{\mathrm{opt}}^{SF}$,
+confirmed in Section~\ref{sec:results}.  Third,
+$\bar H_{\xi\xi} = W^{\!\top}(\gamma\,C^{\!\top}\!C + A^{\!\top}\!PA)W$ is
+rank-deficient---rank at most $n$ in dimension $(m+p)N$, as it factors
+through $W$---the one technical complication the section addresses.
+
+The optimal OF gain, obtained from $\partial \bar Q / \partial u = 0$,
+is
+\begin{equation}
+\bar K^{*} \;=\; -\bar H_{uu}^{-1}\,\bar H_{u\xi}
+   \;\in\; \mathbb{R}^{m \times (m+p)N},
+\label{eq:Kbar_opt}
+\end{equation}
+which is the OF counterpart of the SF formula~\eqref{eq:K_from_H}.
+The control law is $u_k = \bar K^{*}\xi_k$, expressed entirely in
+terms of the input/output history---the state $x_k$ does not appear.
+
+\paragraph{Model-free learning of $\bar H$.}
+The OF Q-function satisfies the Bellman equation
+\begin{equation}
+\bar z_k^{\!\top}\,\bar H\,\bar z_k
+  = \gamma\,y_k^{\!\top}\!y_k + u_k^{\!\top}\!u_k
+    + \bar z_{k+1}^{\!\top}\,\bar H\,\bar z_{k+1},
+\quad k \geq N,
+\label{eq:of_bellman}
+\end{equation}
+which is linear in the unique entries of $\bar H$.  Collecting at
+least $L \geq \bar s$ data tuples
+$\{(y_k, u_k, \xi_k, \xi_{k+1})\}$ with
+$\bar s = ((m+p)N + m)\bigl((m+p)N + m + 1\bigr)/2$ and a persistently
+exciting probing signal yields $\bar H$ via least squares, exactly as
+in the SF case.  The PI/VI algorithms, convergence proofs, and the bias-immunity
+result guaranteeing that the learned $\bar H$
+matches~\eqref{eq:Hbar_def} \emph{exactly} are given
+in~\citep[Ch.~2]{RizviLin2023book}; we treat the learned kernel as
+exact in what follows.
+
+The full high-gain pipeline (Fig.~\ref{fig:of_pipeline}) mirrors the SF
+case---extract $\bar P$ and $\bar K$ from $\bar H$, take
+$\rho^{*} = \max(0,\min(\rho_{\mathrm{sat}}, \rho_{\mathrm{opt}}))$, and
+form $\bar K_{\mathrm{high}} = (1+\rho^{*})\bar K$---using only $\bar H$
+and $\xi_{\mathrm{init}}$.
+
+\begin{figure}[!htb]
+\centering
+\includegraphics[width=\linewidth]{fig/others.pdf}
+\caption{Output-feedback high-gain pipeline.  The extended kernel
+$\bar H$ yields $\bar P$ (Schur complement, Lemma~\ref{lemma:Pbar}),
+$\bar K$, and $\rho_{\mathrm{opt}}$; with
+$\bar c = \xi_{\mathrm{init}}^{\!\top}\bar P\,\xi_{\mathrm{init}}$ these
+give $\rho^{*}$ and $\bar K_{\mathrm{high}} = (1+\rho^{*})\bar K$.  Only
+$\bar H$ and $\xi_{\mathrm{init}}$ enter.}
+\label{fig:of_pipeline}
+\end{figure}
+
+\subsection{Schur Complement Extraction of the Extended Lyapunov Matrix}
+\label{sec:of_schur}
+
+\begin{lemma}[OF Schur complement extraction]\label{lemma:Pbar}
+Let $\bar H(\gamma)$ be the OF extended Q-kernel with the
+structure~\eqref{eq:Hbar_def}--\eqref{eq:Hbar_uu}.  Define the
+extended Lyapunov matrix
+\begin{equation}
+\bar P \;\triangleq\; W^{\!\top}\!P\,W
+   \;\in\; \mathbb{R}^{(m+p)N \times (m+p)N},
+\label{eq:Pbar_def}
+\end{equation}
+where $P = P^{*}(\gamma)$ is the OF DARE solution
+from~\eqref{eq:of_dare}.  Then $\bar P$ is recoverable from $\bar H$
+as the Schur complement of $\bar H_{uu}$ in $\bar H$:
+\begin{equation}
+\bar P
+   = \bar H_{\xi\xi}
+     - \bar H_{\xi u}\,\bar H_{uu}^{-1}\,\bar H_{u\xi}.
+\label{eq:Pbar_schur}
+\end{equation}
+Moreover, $\bar P$ is positive semi-definite with
+$\mathrm{rank}\,\bar P = n$, and its kernel coincides with the null
+space of $W$.
+\end{lemma}
+
+\begin{proof}
+Substituting~\eqref{eq:Hbar_xixi}--\eqref{eq:Hbar_uu} into
+\eqref{eq:Pbar_schur} and applying the OF DARE~\eqref{eq:of_dare},
+\begin{align}
+&\bar H_{\xi\xi} - \bar H_{\xi u}\bar H_{uu}^{-1}\bar H_{u\xi} \notag\\
+&\; = W^{\!\top}\!\bigl[\gamma C^{\!\top}\!C + A^{\!\top}\!PA \notag\\
+&\qquad\; - A^{\!\top}\!PB(I{+}B^{\!\top}\!PB)^{-1}B^{\!\top}\!PA\bigr]W \notag\\
+&\; = W^{\!\top}\!\bigl[\gamma C^{\!\top}\!C + (P - \gamma C^{\!\top}\!C)\bigr]W \notag\\
+&\; = W^{\!\top}\!P\,W = \bar P.
+\end{align}
+Since $P \succ 0$ and $\mathrm{rank}\,W = n$
+(Assumptions~\ref{assum:ANCBC}, \ref{assum:W_rank}),
+$\bar P = W^{\!\top}\!PW \succeq 0$ with $\mathrm{rank}\,\bar P = n$ and
+$\ker\bar P = \ker W$.
+\end{proof}
+
+\subsection{Worst-Case Control over the Extended Lyapunov Level Set}
+\label{sec:of_umax}
+
+The extended Lyapunov level set is
+\begin{equation}
+\bar{\mathcal L}_V(\bar c)
+   \;\triangleq\;
+   \bigl\{\xi \in \mathbb{R}^{(m+p)N} :
+          \xi^{\!\top}\!\bar P\,\xi \leq \bar c \bigr\},
+\quad
+\bar c = \xi_{\mathrm{init}}^{\!\top}\,\bar P\,\xi_{\mathrm{init}},
+\label{eq:Lbar_def}
+\end{equation}
+with $\xi_{\mathrm{init}} = \xi_N$ the extended state at the start of
+the post-learning horizon.  Since $\bar P$ has rank $n$ in dimension
+$(m+p)N$, this set is not an ellipsoid but an unbounded
+\emph{cylinder}: an ellipsoid in the range of $W^{\!\top}$ extruded
+freely along $\ker W$ (Fig.~\ref{fig:of_ellipsoid}, left).  The
+worst-case control is nonetheless finite because $\bar K$ annihilates
+the unbounded directions: with $\bar K = -\bar H_{uu}^{-1}\bar H_{u\xi}$
+and $\bar H_{u\xi} = B^{\!\top}\!PAW$,
+\begin{equation}
+\bar K\,\xi
+   = -\bar H_{uu}^{-1}\,B^{\!\top}\!P A\,W\,\xi
+   = K\,(W\,\xi) = K\,x
+   \quad (x = W\,\xi),
+\label{eq:Kbar_collapse}
+\end{equation}
+so $\bar K\,\xi = 0$ whenever $W\,\xi = 0$, and the supremum is attained
+on the bounded cross section.
+
+\begin{lemma}[OF worst-case control magnitude]\label{lemma:Ubar_max}
+Let $\bar K \in \mathbb{R}^{m \times (m+p)N}$, $\bar P \succeq 0$ with
+$\mathrm{rank}\,\bar P = n$, and
+$\bar c = \xi_{\mathrm{init}}^{\!\top}\,\bar P\,\xi_{\mathrm{init}}$.
+Then the supremum of $\|\bar K\,\xi\|_2$ over the extended level
+set~\eqref{eq:Lbar_def} is finite and equals
+\begin{equation}
+\bar U_{\max}
+   = \sqrt{\,\bar c\cdot
+       \lambda_{\max}\!\bigl(\bar K\,\bar P^{\dagger}\,\bar K^{\!\top}\bigr)\,},
+\label{eq:Ubar_max}
+\end{equation}
+where $\bar P^{\dagger}$ is the Moore--Penrose pseudoinverse of
+$\bar P$.  Moreover, the OF formula~\eqref{eq:Ubar_max} matches the SF
+formula~\eqref{eq:Umax} exactly:
+\begin{equation}
+\lambda_{\max}\!\bigl(\bar K\,\bar P^{\dagger}\,\bar K^{\!\top}\bigr)
+   = \lambda_{\max}\!\bigl(K\,P^{-1}\,K^{\!\top}\bigr),
+\label{eq:Ubar_match_sf}
+\end{equation}
+so the substitution $P^{-1} \to \bar P^{\dagger}$ produces no
+information loss.
+\end{lemma}
+
+\begin{proof}
+\textit{Step~1 (SVD and decomposition).}  Let
+$W = U\,\Sigma\,V^{\!\top}$ be the compact SVD, with
+$U \in \mathbb{R}^{n\times n}$ orthogonal,
+$\Sigma \in \mathbb{R}^{n\times n}$ diagonal and invertible ($W$ has
+full row rank $n$), and $V \in \mathbb{R}^{(m+p)N\times n}$ with
+orthonormal columns spanning $\mathrm{range}\,W^{\!\top}$; let
+$V_{\perp}$ complete an orthonormal basis of $\ker W$.  Decompose
+\begin{equation}
+\xi = V\,\alpha + V_{\perp}\,\beta,
+\quad \alpha = V^{\!\top}\!\xi,
+\quad \beta = V_{\perp}^{\!\top}\!\xi.
+\label{eq:xi_decomp}
+\end{equation}
+Then $W\xi = U\Sigma\,\alpha$ and, by~\eqref{eq:Kbar_collapse},
+$\bar K\xi = K\,U\Sigma\,\alpha$---both independent of $\beta$---while
+\begin{equation}
+\xi^{\!\top}\!\bar P\,\xi
+   = (W\xi)^{\!\top}\!P\,(W\xi)
+   = \alpha^{\!\top}\!S\,\alpha,
+\quad S \triangleq \Sigma\,U^{\!\top}\!P\,U\,\Sigma \succ 0.
+\label{eq:constraint_alpha}
+\end{equation}
+
+\textit{Step~2 (Reduction to the cross section).}  The constraint
+depends only on $\alpha$ (a proper ellipsoid, the cylinder cross
+section), so the unbounded $\beta$ directions drop out:
+\begin{equation}
+\sup_{\xi \in \bar{\mathcal L}_V(\bar c)} \|\bar K\,\xi\|_2^2
+   = \max_{\alpha^{\!\top}\!S\,\alpha \leq \bar c}
+     \|K\,U\,\Sigma\,\alpha\|_2^2.
+\label{eq:reduced_problem}
+\end{equation}
+
+\textit{Step~3 (Whitening).}  With $\eta = S^{1/2}\alpha$, the
+constraint becomes the ball $\|\eta\|^2 \leq \bar c$ and
+\begin{equation}
+\|K\,U\,\Sigma\,\alpha\|_2^2 = \eta^{\!\top}\Gamma\,\eta,
+\quad
+\Gamma \triangleq
+S^{-1/2}\Sigma\,U^{\!\top}\!K^{\!\top}\!K\,U\,\Sigma\,S^{-1/2},
+\label{eq:whitening}
+\end{equation}
+whose maximum over the ball is $\bar c\,\lambda_{\max}(\Gamma)$; the
+three-stage geometry (cylinder $\to$ ellipsoid $\to$ ball) is shown in
+Fig.~\ref{fig:of_ellipsoid}.
+
+\textit{Step~4 (Pseudoinverse identity).}  We claim
+\begin{equation}
+\bar P^{\dagger}
+   = V\,\Sigma^{-1}\,U^{\!\top}\!P^{-1}\,U\,\Sigma^{-1}\,V^{\!\top}.
+\label{eq:Pbar_dagger}
+\end{equation}
+Using $\bar P = V\Sigma\,U^{\!\top}\!P\,U\Sigma\,V^{\!\top}$,
+$V^{\!\top}\!V = I_n$, and $U^{\!\top}\!U = U U^{\!\top} = I_n$,
+\begin{equation}
+\bar P\,\bar P^{\dagger}
+  = V\Sigma\,U^{\!\top}\!P\,U\Sigma\,
+     \Sigma^{-1}U^{\!\top}\!P^{-1}U\,\Sigma^{-1}V^{\!\top}
+  = V\,V^{\!\top},
+\label{eq:PPdagger}
+\end{equation}
+the symmetric idempotent projector onto $\mathrm{range}\,V$, from which
+the four Moore--Penrose conditions follow (e.g.\
+$\bar P\,\bar P^{\dagger}\bar P = V V^{\!\top}\bar P = \bar P$).  The
+same cancellations, with $\bar K = K\,U\Sigma\,V^{\!\top}$, give
+\begin{align}
+\bar K\,\bar P^{\dagger}\,\bar K^{\!\top}
+  &= K\,U\Sigma\,(V^{\!\top}\!V)\,\Sigma^{-1}U^{\!\top}\!P^{-1}
+     U\,\Sigma^{-1}(V^{\!\top}\!V)\,\Sigma\,U^{\!\top}\!K^{\!\top}
+     \notag\\
+  &= K\,(U U^{\!\top})\,P^{-1}\,(U U^{\!\top})\,K^{\!\top}
+   = K\,P^{-1}\,K^{\!\top}.
+\label{eq:KPdaggerK_eq_KPinvK}
+\end{align}
+Finally, $\Gamma$ and $\bar K\,\bar P^{\dagger}\bar K^{\!\top}$ share
+the same nonzero spectrum (the nonzero eigenvalues of $MN$ and $NM$
+coincide, applied cyclically), so
+$\lambda_{\max}(\Gamma) = \lambda_{\max}(K\,P^{-1}K^{\!\top})$;
+with~\eqref{eq:reduced_problem} this gives~\eqref{eq:Ubar_max} and the
+state-feedback match~\eqref{eq:Ubar_match_sf}.
+\end{proof}
+
+\begin{remark}[The single-substitution principle]\label{rem:substitution}
+Lemma~\ref{lemma:Ubar_max} is the analytical centerpiece: the OF
+worst-case-control formula equals the SF formula under the single,
+information-preserving substitution $P^{-1}\to\bar P^{\dagger}$; every
+downstream quantity is its SF counterpart under the same substitution,
+so Sections~\ref{sec:of_sat}--\ref{sec:of_stability} are brief.
+\end{remark}
+
+\begin{figure}[!htb]
+\centering
+\includegraphics[width=\linewidth]{figof/of_ellipsoid_transform (1).pdf}
+\caption{Lemma~\ref{lemma:Ubar_max}: the level set is a
+rank-deficient cylinder---an ellipsoid in $\mathrm{range}\,W^{\!\top}$
+extruded along $\ker W$, where $\bar K$ vanishes (left); projection
+onto $\alpha$ collapses it to a proper ellipsoid (middle); whitening
+$\eta = S^{1/2}\alpha$ gives a ball whose maximizer aligns with the
+leading eigenvector of $\Gamma$ (right).}
+\label{fig:of_ellipsoid}
+\end{figure}
+
+\subsection{Saturation Bound}\label{sec:of_sat}
+
+By Remark~\ref{rem:substitution}, the saturation-bound construction
+transports verbatim from Section~\ref{sec:rho_sat}.
+
+\begin{proposition}[OF saturation bound]\label{prop:of_rho_sat}
+Define
+\begin{equation}
+\rho_{\mathrm{sat}} = \frac{b}{\bar U_{\max}} - 1.
+\label{eq:of_rho_sat}
+\end{equation}
+If $\rho_{\mathrm{sat}} > 0$ (i.e., $\bar U_{\max} < b$), then for any
+$\rho \in [0, \rho_{\mathrm{sat}}]$,
+\begin{equation}
+\|(1 + \rho)\bar K\,\xi\|_2 \leq b,
+\quad \forall\,\xi \in \bar{\mathcal L}_V(\bar c).
+\end{equation}
+\end{proposition}
+
+\begin{proof}
+For any $\xi \in \bar{\mathcal L}_V(\bar c)$,
+Lemma~\ref{lemma:Ubar_max} gives $\|\bar K\,\xi\|_2 \leq \bar U_{\max}$.
+Then
+\begin{align}
+\|(1 + \rho)\bar K\,\xi\|_2
+&= (1 + \rho)\,\|\bar K\,\xi\|_2 \notag\\
+&\leq (1 + \rho)\,\bar U_{\max} \notag\\
+&\leq \frac{b}{\bar U_{\max}}\cdot \bar U_{\max} \;=\; b,
+\end{align}
+where the last inequality uses $\rho \leq \rho_{\mathrm{sat}}$.  At
+$\rho = \rho_{\mathrm{sat}}$, equality holds.
+\end{proof}
+
+\subsection{Lyapunov Decrease Bound}\label{sec:of_lyap}
+
+The saturation bound alone does not ensure stability.  We bound $\rho$
+so that $\bar V(\xi) = \xi^{\!\top}\!\bar P\,\xi$ decreases under
+$u_k = (1+\rho)\bar K\,\xi_k$.  Since $\bar H_{uu} = I + B^{\!\top}\!PB$
+has the SF form (observation~(ii)) and $\bar H$ enters the Bellman
+recursion~\eqref{eq:of_bellman} exactly as $H$ does, the six-step
+calculation of Section~\ref{sec:lyapunov} transports verbatim under
+$x \mapsto \xi$, $H \mapsto \bar H$, $Kx \mapsto \bar K\xi$; only the
+running cost changes, to $\gamma\,y_k^{\!\top}\!y_k$ (still nonnegative).
+The result is the OF Lyapunov-decrease identity
+\begin{equation}
+\bar V(\xi_k) - \bar V(\xi_{k+1})
+  = \gamma\,y_k^{\!\top}\!y_k
+  + (\bar K\,\xi_k)^{\!\top}\,\bar\Lambda(\rho)\,(\bar K\,\xi_k),
+\label{eq:of_lyap_decrease}
+\end{equation}
+with the OF \emph{Lyapunov-decrease indicator}
+\begin{equation}
+\boxed{\bar\Lambda(\rho) \;\triangleq\;
+       (1+\rho)^2 I_m - \rho^2\,\bar H_{uu},}
+\label{eq:Lambda_bar}
+\end{equation}
+identical in form to the SF indicator~\eqref{eq:Lambda} with
+$\bar\lambda := \lambda_{\max}(\bar H_{uu}) > 1$.  The two-quantities
+analysis of Section~\ref{sec:lyapunov} therefore applies with $H_{uu}$
+replaced by $\bar H_{uu}$---no pseudoinverse enters, since
+$\bar H_{uu}$ is a full-rank $m \times m$ block:
+\begin{align}
+\bar\Lambda(\rho) \succ 0
+   \;\iff\; \rho < \rho_{\max}
+   &\triangleq \frac{1}{\sqrt{\bar\lambda} - 1},
+   \notag\\
+\rho_{\mathrm{opt}} \triangleq \frac{1}{\bar\lambda - 1}
+   \;&<\; \rho_{\max},
+\label{eq:of_rho_opt_derivation}
+\end{align}
+with $\rho_{\mathrm{opt}}$ the maximizer of the guaranteed decrease
+margin, exactly as
+in~\eqref{eq:rho_max}--\eqref{eq:rho_order}; the design again selects
+$\rho_{\mathrm{opt}}$.
+
+\begin{remark}[More gain-boost room]\label{rem:more_room}
+The rank-deficient OF cost (its penalty vanishes on $\ker C$) yields
+a ``smaller'' Riccati solution and a $\bar H_{uu}$ closer to the
+identity, so both the
+maximizer and the stability limit are larger than in SF (Case~1:
+$\rho_{\mathrm{opt}} = 4.22$ vs.\ $2.31$ and $\rho_{\max} = 8.91$ vs.\
+$5.07$), widening the OF parabola in Fig.~\ref{fig:of_lambda}.  The extra headroom
+yields only a modest speedup, however, since the rank-deficient cost
+relocates only a subset of the poles (Section~\ref{sec:pole_movement}).
+\end{remark}
+
+\begin{figure}[!htb]
+\centering
+\includegraphics[width=\linewidth]{fig/others (1).pdf}
+\caption{State-feedback (dashed) vs.\ output-feedback (solid)
+Lyapunov-decrease indicators, Case~1.  Both have the shape
+$(1+\rho)^2 - \rho^2\lambda_{\max}(\cdot)$, but the rank-deficient OF
+cost penalizes only the output direction, making
+$\bar H_{uu} = I + B^{\!\top}\!PB$ closer to the identity; the OF
+parabola is therefore wider, enlarging both $\rho_{\mathrm{opt}}$ and
+the stability limit $\rho_{\max}$.}
+\label{fig:of_lambda}
+\end{figure}
+
+\subsection{Stability Theorem}\label{sec:of_stability}
+
+\begin{theorem}[Model-Free OF Stabilization]
+\label{thm:of_main}
+Under Assumptions~\ref{assum:ANCBC}, \ref{assum:obs},
+and~\ref{assum:W_rank}, let $\bar H(\gamma)$ be the converged extended
+Q-kernel from the OF policy iteration
+of~{\citep[Algorithm~2.1]{RizviLin2023book}}, and let $\bar K$,
+$\bar P$, $\bar c$, $\bar U_{\max}$, $\rho_{\mathrm{sat}}$,
+$\rho_{\mathrm{opt}}$, and $\rho^{*}$ be computed from $\bar H$ and
+$\xi_{\mathrm{init}}$ by the state-feedback formulas of
+Theorem~\ref{thm:main} under the single substitution
+$P^{-1}\to\bar P^{\dagger}$ (equivalently, Algorithm~\ref{alg:of}).  If
+$\rho^{*} > 0$, the boosted controller
+$u_k = (1+\rho^{*})\bar K\,\xi_k$ guarantees:
+\begin{enumerate}
+\item[(a)] \textbf{Saturation avoidance:} $\|u_k\|_\infty \leq b$ for
+   all $\xi_k \in \bar{\mathcal L}_V(\bar c)$, so $\sigma(u_k)=u_k$
+   along the trajectory;
+\item[(b)] \textbf{Asymptotic stability:} the state $x_k = W\,\xi_k$
+   converges to zero;
+\item[(c)] \textbf{Positive invariance:} $\bar{\mathcal L}_V(\bar c)$
+   is positively invariant;
+\item[(d)] \textbf{Model-free:} all quantities are computed from the
+   learned kernel $\bar H$ and $\xi_{\mathrm{init}}$, with no use of
+   $(A, B, C)$ or the parameterization matrix $W$.
+\end{enumerate}
+Moreover, for any bounded set of initial extended states there exists a
+sufficiently small $\gamma > 0$ with $\rho^{*} > 0$ (semi-global
+stabilization).
+\end{theorem}
+
+\begin{proof}
+\emph{(a) Saturation avoidance.}  By Lemma~\ref{lemma:Ubar_max} and
+$\rho^{*} \leq \rho_{\mathrm{sat}} = b/\bar U_{\max} - 1$, for any
+$\xi_k \in \bar{\mathcal L}_V(\bar c)$,
+\begin{equation}
+\|u_k\|_\infty \leq \|u_k\|_2
+   = (1+\rho^{*})\,\|\bar K\,\xi_k\|_2
+   \leq (1+\rho_{\mathrm{sat}})\,\bar U_{\max} = b,
+\label{eq:of_sat_chain}
+\end{equation}
+so $\sigma(u_k) = u_k$ throughout $\bar{\mathcal L}_V(\bar c)$.
+
+\emph{(b) Asymptotic stability.}  With saturation inactive, the OF
+decrease identity~\eqref{eq:of_lyap_decrease} holds with
+$\bar\Lambda(\rho^{*}) \succ 0$, since
+$\rho^{*} \leq \rho_{\mathrm{opt}} < \rho_{\max}$
+by~\eqref{eq:of_rho_opt_derivation}; thus $\bar V$ is
+non-increasing---all that part~(c) requires.  For convergence, pass to
+$x_k = W\xi_k$ (exact for $k \geq N$): by~\eqref{eq:Kbar_collapse},
+$\bar K\xi_k = Kx_k$ and $y_k = Cx_k$, while
+$\bar V(\xi_k) = x_k^{\!\top}P\,x_k =: V(x_k)$ with $P \succ 0$.  The
+closed loop is $x_{k+1} = A_{\mathrm{cl}}\,x_k$ with
+$A_{\mathrm{cl}} := A + B(1+\rho^{*})K$,
+and~\eqref{eq:of_lyap_decrease} becomes the Lyapunov equation
+\begin{equation}
+A_{\mathrm{cl}}^{\!\top} P A_{\mathrm{cl}} - P = -S,
+\quad
+S := \gamma\,C^{\!\top}\!C
+     + K^{\!\top}\bar\Lambda(\rho^{*})\,K \;\succeq\; 0.
+\label{eq:thm_proof_S}
+\end{equation}
+Since $\bar\Lambda(\rho^{*}) \succ 0$,
+$\ker S = \ker C \cap \ker K$, and $(A_{\mathrm{cl}}, S^{1/2})$ is
+detectable: if $A_{\mathrm{cl}}v = \lambda v$ with $S v = 0$, then
+$Kv = 0$, so
+\begin{equation}
+A_{\mathrm{cl}}\,v = \bigl(A + B(1+\rho^{*})K\bigr)\,v = A\,v,
+\qquad v \in \ker C,
+\label{eq:of_pbh}
+\end{equation}
+contradicting observability of $(A, C)$
+(Assumption~\ref{assum:obs}) by the Popov--Belevitch--Hautus test.
+With $P \succ 0$, $S \succeq 0$, and detectability,
+\eqref{eq:thm_proof_S} forces $A_{\mathrm{cl}}$ Schur, so
+$x_k = W\xi_k \to 0$ within $\bar{\mathcal L}_V(\bar c)$.
+
+\emph{(c) Positive invariance.}  By part~(b),
+$\bar V(\xi_{k+1}) \leq \bar V(\xi_k) \leq \bar c$, so
+$\xi_{k+1} \in \bar{\mathcal L}_V(\bar c)$.
+
+\emph{(d) Model-free.}  Every quantity in Lines~4--11 of
+Algorithm~\ref{alg:of} is a closed-form algebraic function of $\bar H$
+and $\xi_{\mathrm{init}}$ alone.
+
+\emph{Semi-global property.}  Exactly as for Theorem~\ref{thm:main},
+the closed-loop form of the OF DARE~\eqref{eq:of_dare} is
+\begin{equation}
+A_{\mathrm{cl}}^{\!\top} P A_{\mathrm{cl}} - P
+   = -\bigl(\gamma\,C^{\!\top}\!C + K^{\!\top}\!K\bigr),
+\label{eq:of_cl_lyap}
+\end{equation}
+so $K^{\!\top}\!K \preceq P$ and, with $x = W\xi$,
+\begin{equation}
+\|\bar K\,\xi\|_2^2 = \|Kx\|_2^2 \leq x^{\!\top}\!P x
+   = \xi^{\!\top}\bar P\,\xi \leq \bar c
+\quad \text{on } \bar{\mathcal L}_V(\bar c),
+\label{eq:of_Umax_bound}
+\end{equation}
+whence $\bar U_{\max} \leq \sqrt{\bar c}$ and
+$\lambda_{\max}(\bar K\,\bar P^{\dagger}\bar K^{\!\top}) \leq 1$
+by~\eqref{eq:Ubar_match_sf}.  As $\gamma \to 0$, $P \to 0$, so
+$\bar c \to 0$, $\bar U_{\max} \to 0$,
+$\rho_{\mathrm{sat}} \to \infty$, and eventually
+$\rho^{*} = \rho_{\mathrm{opt}} > 0$, which the $\gamma$-scheduling
+loop of Algorithm~\ref{alg:of} locates automatically.
+\end{proof}
+
+\subsection{Algorithm}\label{sec:of_algorithm}
+
+Algorithm~\ref{alg:of} summarizes the complete OF procedure.  The
+high-gain enhancement (Lines~4--11) consists of closed-form algebraic
+operations on the converged extended kernel $\bar H$ and adds
+negligible overhead to the underlying output-feedback Q-learning loop.
+
+\begin{algorithm}[!htb]
+\caption{Model-Free Low-and-High Gain Output-Feedback Q-Learning}
+\label{alg:of}
+{\footnotesize
+\begin{algorithmic}[1]
+\Require $\xi_{\mathrm{init}}$, limit $b$, initial $\gamma$, tolerance $\epsilon$
+\Ensure  high-gain OF controller $\bar K_{\mathrm{high}}$
+\State Initialize stabilizing $\bar K^{0}$;\ $\gamma_c \leftarrow \gamma$
+\Repeat
+    \State Run OF PI \citep[Alg.~2.1]{RizviLin2023book} at $\gamma_c$
+    \Statex \quad\, until $\|\bar H^{j} - \bar H^{j-1}\| < \epsilon$
+    \State $\bar K \leftarrow -\bar H_{uu}^{-1}\,\bar H_{u\xi}$
+    \State $\bar P \leftarrow \bar H_{\xi\xi} - \bar H_{\xi u}\,\bar H_{uu}^{-1}\,\bar H_{u\xi}$
+    \State $\bar c \leftarrow \xi_{\mathrm{init}}^{\!\top}\,\bar P\,\xi_{\mathrm{init}}$
+    \State $\bar U_{\max} \leftarrow \sqrt{\bar c\,\lambda_{\max}(\bar K\,\bar P^{\dagger}\,\bar K^{\!\top})}$
+    \State $\rho_{\mathrm{sat}} \leftarrow b/\bar U_{\max} - 1$
+    \State $\rho_{\mathrm{opt}} \leftarrow 1/(\lambda_{\max}(\bar H_{uu}) - 1)$
+    \State $\rho^{*} \leftarrow \max(0,\min(\rho_{\mathrm{sat}},\rho_{\mathrm{opt}}))$
+    \State $\bar K_{\mathrm{high}} \leftarrow (1 + \rho^{*})\,\bar K$
+    \If{$\rho_{\mathrm{sat}} \leq 0$}\Comment{$\bar U_{\max}\!\geq\! b$: invariant-set test}
+        \State $\gamma_c \leftarrow \gamma_c / 2$
+    \EndIf
+\Until{$\rho_{\mathrm{sat}} > 0$}
+\State \Return $\bar K_{\mathrm{high}}$, $\rho^{*}$, $\gamma_c$
+\end{algorithmic}}
+\end{algorithm}
+
+The differences from Algorithm~\ref{alg:sf} are mechanical:
+input/output data in the policy-iteration step,
+$\bar P^{\dagger}$ in place of $P^{-1}$ in the level-set check, and the
+same invariant-set $\gamma$-scheduling test.
+
+
+%% =====================================================================
+\section{Numerical Results}\label{sec:results}
+%% =====================================================================
+
+The benchmark, taken from~\citep{RizviLin2018CDC,RizviLin2019IJRNC},
+is of fourth order with its entire spectrum on the unit circle:
+\begin{equation}
+A = \begin{bmatrix}
+       0 & 1 & 0 & 0 \\
+       0 & 0 & 1 & 0 \\
+       0 & 0 & 0 & 1 \\
+      -1 & 2\sqrt{2} & -4 & 2\sqrt{2}
+    \end{bmatrix},
+\quad
+B = \begin{bmatrix} 0 \\ 0 \\ 0 \\ 1 \end{bmatrix},
+\label{eq:system_matrices}
+\end{equation}
+and $b = 1$.  The eigenvalues $e^{\pm j\pi/4}$, each of multiplicity
+two, place the plant at the edge of the ANCBC class.  A trajectory
+counts as settled once $\|x_k\| < 0.01\|x_0\|$; two initial conditions
+probe the two operating regimes.
+
+\subsection{Case~1: \texorpdfstring{$x_0 = [1,1,1,1]^\top$}{x0 = [1,1,1,1]} (Lyapunov-limited)}
+
+Scheduling terminates at $\gamma = 2.44 \times 10^{-4}$; the low-gain
+loop needs 64 steps and never exceeds $\|u\|_{\max} = 0.129$, a mere
+12.9\% of the actuator range.  From that very kernel, at that very
+$\gamma$, the boost computation returns
+\begin{align}
+\rho_{\mathrm{sat}} &= 2.88, \quad
+\rho_{\mathrm{opt}} = \frac{1}{\lambda_{\max}(H_{uu})-1} = 2.31,
+\notag \\
+\rho^* &= \min(2.88,\; 2.31) = 2.31, \notag \\
+\Lambda(\rho^*) &= (1+2.31)^2 - (2.31)^2 \times 1.433 = 3.31.
+\end{align}
+Here $\rho_{\mathrm{opt}} < \rho_{\mathrm{sat}}$: \emph{the decrease
+certificate, not the actuator, caps the boost}.  Under
+$K_{\mathrm{high}} = (1+\rho^{*})K = 3.31\,K$ the loop settles in 37
+steps---a $1.73\times$ acceleration---peaking at
+$\|u\|_{\max} = 0.318$ (31.8\%) with no violation
+(Figs.~\ref{fig:baseline_c1}--\ref{fig:comparison_c1}).
+
+%% ---- CASE 1 FIGURES (grouped: baseline / proposed / overlay) ----
+\begin{figure*}[!t]
+\centering
+\subfloat[Baseline ($\gamma = 2.44\times10^{-4}$): states settle in
+64 steps; control uses 12.9\% of capacity.]{%
+  \includegraphics[width=0.32\textwidth]{fig/Low-Gain (Original) sf.pdf}%
+  \label{fig:baseline_c1}}\hfil
+\subfloat[Proposed ($\rho^* = 2.31$, $\Lambda(\rho^*) = 3.31$): 37
+steps, 31.8\% utilization; binding $\rho_{\mathrm{opt}}$.]{%
+  \includegraphics[width=0.32\textwidth]{fig/High-Gain (Proposed) sf.pdf}%
+  \label{fig:proposed_c1}}\hfil
+\subfloat[Overlay: baseline (solid) vs.\ proposed (dashed);
+$1.73\times$ speedup ($64 \to 37$).]{%
+  \includegraphics[width=0.32\textwidth]{fig/Comparison sf.pdf}%
+  \label{fig:comparison_c1}}
+\caption{State-feedback Case~1 ($x_0 = [1,1,1,1]^\top$,
+Lyapunov-limited).}
+\label{fig:sf_case1}
+\end{figure*}
+
+\subsection{Case~2: \texorpdfstring{$x_0 = [5,5,5,5]^\top$}{x0 = [5,5,5,5]} (Saturation-limited)}
+
+The larger initial condition drives the schedule further, to
+$\gamma = 6.10 \times 10^{-5}$; the baseline now takes 92 steps at
+$\|u\|_{\max} = 0.477$ (47.7\%).  The boost computation gives
+\begin{align}
+\rho_{\mathrm{sat}} &= 0.84, \quad
+\rho_{\mathrm{opt}} = \frac{1}{\lambda_{\max}(H_{uu})-1} = 3.44,
+\notag \\
+\rho^* &= \min(0.84,\; 3.44) = 0.84, \notag \\
+\Lambda(\rho^*) &= (1+0.84)^2 - (0.84)^2 \times 1.291 = 2.47.
+\end{align}
+This time $\rho_{\mathrm{sat}} < \rho_{\mathrm{opt}}$: \emph{the
+actuator geometry, not the certificate, is limiting}---the mirror
+image of Case~1.  Even so, settling drops to 64 steps ($1.44\times$)
+at $\|u\|_{\max} = 0.820$ (82.0\%), again without violation
+(Figs.~\ref{fig:baseline_c2}--\ref{fig:comparison_c2}).
+
+%% ---- CASE 2 FIGURES (grouped: baseline / proposed / overlay) ----
+\begin{figure*}[!t]
+\centering
+\subfloat[Baseline ($\gamma = 6.10\times10^{-5}$): states settle in
+92 steps; control uses 47.7\% of capacity.]{%
+  \includegraphics[width=0.32\textwidth]{fig/lg.pdf}%
+  \label{fig:baseline_c2}}\hfil
+\subfloat[Proposed ($\rho^* = 0.84$, $\Lambda(\rho^*) = 2.47$): 64
+steps, 82.0\% utilization; binding $\rho_{\mathrm{sat}}$.]{%
+  \includegraphics[width=0.32\textwidth]{fig/hg.pdf}%
+  \label{fig:proposed_c2}}\hfil
+\subfloat[Overlay: baseline (solid) vs.\ proposed (dashed);
+$1.44\times$ speedup ($92 \to 64$).]{%
+  \includegraphics[width=0.32\textwidth]{fig/comp.pdf}%
+  \label{fig:comparison_c2}}
+\caption{State-feedback Case~2 ($x_0 = [5,5,5,5]^\top$,
+saturation-limited).}
+\label{fig:sf_case2}
+\end{figure*}
+
+\subsection{Comparative Discussion}
+
+The two cases visit both branches of $\rho^{*}$
+(Table~\ref{tab:sf_vs_of}): headroom in Case~1 lets the certificate
+bind ($2.31 < 2.88$), pressure in Case~2 lets the geometry bind
+($0.84 < 3.44$), with no intervention either way.  Idle authority is
+put to work---$1.73\times$ and $1.44\times$ faster settling,
+$\Lambda(\rho^*)\succ 0$, no violation---at the cost of one Schur
+complement and one eigenvalue.
+
+%% =====================================================================
+%% Output-feedback numerical results
+%% =====================================================================
+
+\subsection{Output-Feedback Case~1: Lyapunov-Limited}
+\label{sec:of_results_c1}
+
+We now apply the OF framework of Section~\ref{sec:proposed_of} to the
+same fourth-order test system~\eqref{eq:system_matrices} with output
+matrix $C = [1, 0, 0, 0]$, so that only the first state component is
+measured.  The OF cost weighting is
+$Q = \gamma\,C^{\!\top}\!C = \gamma\,\mathrm{diag}(1, 0, 0, 0)$, which
+has rank one.  The dead-beat parameterization horizon is $N = 4$
+(the system order), giving an extended state
+$\xi_k \in \mathbb{R}^{(m + p)N} = \mathbb{R}^{8}$ for the SISO case ($m = p = 1$).
+The extended Q-kernel
+$\bar H \in \mathbb{R}^{9 \times 9}$ has $\bar s = 9 \cdot 10 / 2 = 45$ unique
+entries to learn---three times the SF count.
+
+Output-feedback Q-learning {\citep[Algorithm~2.1]{RizviLin2023book}}
+converges at $\gamma = 1.22 \times 10^{-4}$, about half the SF value
+on the same problem and consistent with the additional headroom
+afforded by the rank-1 cost.  The baseline OF controller $\bar K$
+settles in 105 steps with peak control $\|u\|_{\max} = 0.096$, i.e.,
+$9.6\%$ actuator utilization.  The proposed OF high-gain extension
+computes:
+\begin{align}
+&\bar H_{uu} = 1.237, \quad \bar c = 0.066, \quad \bar U_{\max} = 0.112, \notag\\
+&\rho_{\mathrm{sat}} = b/\bar U_{\max} - 1 = 7.93, \notag\\
+&\rho_{\mathrm{opt}} = 1/(\bar H_{uu} - 1) = 4.22, \quad \rho^{*} = 4.22, \notag\\
+&\bar\Lambda(\rho^{*}) = (1 + 4.22)^2 - (4.22)^2 \times 1.237 = 5.22.
+\end{align}
+As in SF Case~1, the Lyapunov-decrease bound is binding
+($\rho_{\mathrm{opt}} < \rho_{\mathrm{sat}}$).  The boosted controller
+$\bar K_{\mathrm{high}} = (1+\rho^{*})\bar K = 5.22\,\bar K$ settles in
+85 steps
+($1.24\times$ speedup) with $\|u\|_{\max} = 0.370$ ($37.0\%$
+utilization) and zero violations
+(Figs.~\ref{fig:of_baseline_c1}--\ref{fig:of_comparison_c1}).
+
+Against SF Case~1, the smaller $\bar H_{uu}$ ($1.237$ vs.\ $1.433$)
+inflates both bounds ($\rho_{\mathrm{opt}}$ $4.22$ vs.\ $2.31$;
+$\rho_{\mathrm{sat}}$ $7.93$ vs.\ $2.88$), yet the realized speedup
+shrinks ($1.24\times$ vs.\ $1.73\times$)---the pole-movement effect of
+Remark~\ref{rem:more_room}, analyzed in
+Section~\ref{sec:pole_movement}.
+
+\begin{figure*}[!t]
+\centering
+\subfloat[Baseline ($\gamma = 1.22\times10^{-4}$): states settle in
+105 steps; control uses 9.6\% of capacity.]{%
+  \includegraphics[width=0.32\textwidth]{figof/c1low.pdf}%
+  \label{fig:of_baseline_c1}}\hfil
+\subfloat[Proposed ($\rho^{*} = 4.22$, $\bar\Lambda(\rho^{*}) = 5.22$):
+85 steps, 37.0\% utilization; binding $\rho_{\mathrm{opt}}$.]{%
+  \includegraphics[width=0.32\textwidth]{figof/c1high.pdf}%
+  \label{fig:of_proposed_c1}}\hfil
+\subfloat[Overlay: baseline (solid) vs.\ proposed (dashed);
+$1.24\times$ speedup ($105 \to 85$).]{%
+  \includegraphics[width=0.32\textwidth]{figof/c1lowhigh.pdf}%
+  \label{fig:of_comparison_c1}}
+\caption{Output-feedback Case~1 ($x_0 = [1,1,1,1]^\top$,
+Lyapunov-limited).}
+\label{fig:of_case1}
+\end{figure*}
+
+\begin{figure*}[!t]
+\centering
+\subfloat[Baseline ($\gamma = 1.53\times10^{-5}$): states settle in
+184 steps; control uses 27.5\% of capacity.]{%
+  \includegraphics[width=0.32\textwidth]{figof/c2low.pdf}%
+  \label{fig:of_baseline_c2}}\hfil
+\subfloat[Proposed ($\rho^{*} = 2.24$, $\bar\Lambda(\rho^{*}) = 4.81$):
+147 steps, 81.8\% utilization; binding $\rho_{\mathrm{sat}}$.]{%
+  \includegraphics[width=0.32\textwidth]{figof/c2high.pdf}%
+  \label{fig:of_proposed_c2}}\hfil
+\subfloat[Overlay: baseline (solid) vs.\ proposed (dashed);
+$1.25\times$ speedup ($184 \to 147$).]{%
+  \includegraphics[width=0.32\textwidth]{figof/c2lowhigh.pdf}%
+  \label{fig:of_comparison_c2}}
+\caption{Output-feedback Case~2 ($x_0 = [5,5,5,5]^\top$,
+saturation-limited).}
+\label{fig:of_case2}
+\end{figure*}
+
+\subsection{Output-Feedback Case~2: Saturation-Limited}
+\label{sec:of_results_c2}
+
+For the larger initial condition $x_0 = [5, 5, 5, 5]^\top$, the OF
+$\gamma$-scheduling converges at $\gamma = 1.53 \times 10^{-5}$, again
+about an order of magnitude smaller than the Case~1 value.  The OF
+baseline settles in 184 steps with $\|u\|_{\max} = 0.275$ ($27.5\%$
+utilization).  The proposed OF high-gain method yields:
+\begin{align}
+&\bar H_{uu} = 1.133, \quad \bar c = 0.811, \quad \bar U_{\max} = 0.309, \notag\\
+&\rho_{\mathrm{sat}} = 2.24, \quad \rho_{\mathrm{opt}} = 7.50, \quad \rho^{*} = 2.24, \notag\\
+&\bar\Lambda(\rho^{*}) = (1 + 2.24)^2 - (2.24)^2 \times 1.133 = 4.81.
+\end{align}
+The saturation geometry is now binding
+($\rho_{\mathrm{sat}} < \rho_{\mathrm{opt}}$), exactly matching SF
+Case~2's regime.  The boosted controller settles in 147 steps
+($1.25\times$ speedup) with $\|u\|_{\max} = 0.818$ ($81.8\%$
+utilization) and zero violations
+(Figs.~\ref{fig:of_baseline_c2}--\ref{fig:of_comparison_c2}).
+
+
+
+\subsection{Output-Feedback Comparative Discussion}
+\label{sec:of_comparative}
+The OF runs repeat the automatic selection
+(Table~\ref{tab:sf_vs_of}): $\rho_{\mathrm{opt}}$ binds in Case~1
+($4.22 < 7.93$), $\rho_{\mathrm{sat}}$ in Case~2 ($2.24 < 7.50$),
+utilization climbs to $37.0\%$ and $81.8\%$, and the speedups sit
+uniformly near $1.24$--$1.25\times$ whichever constraint binds---a
+uniformity explained in Section~\ref{sec:pole_movement}.
+
+
+\subsection{State-Feedback vs.\ Output-Feedback: The Pole-Movement Trade-off}
+\label{sec:pole_movement}
+
+\begin{table}[!htb]
+\centering
+\caption{State-feedback vs.\ output-feedback comparison across both
+initial conditions ($b = 1$).  All bold values are model-free
+quantities computed from the learned kernel.}
+\label{tab:sf_vs_of}
+\renewcommand{\arraystretch}{1.25}
+\small
+\resizebox{\columnwidth}{!}{%
+\begin{tabular}{lcccc}
+\toprule
+& \multicolumn{2}{c}{\textbf{Case~1:} $x_0 = \mathbf{1}_4$}
+& \multicolumn{2}{c}{\textbf{Case~2:} $x_0 = 5 \cdot \mathbf{1}_4$} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}
+\textbf{Metric} & SF & OF & SF & OF \\
+\midrule
+$\gamma$ converged
+   & $2.44\!\times\!10^{-4}$ & $1.22\!\times\!10^{-4}$
+   & $6.10\!\times\!10^{-5}$ & $1.53\!\times\!10^{-5}$ \\
+$\bar H_{uu}$ (binding eigenvalue)
+   & 1.433 & 1.237 & 1.291 & 1.133 \\
+\midrule
+$\rho_{\mathrm{sat}}$       & 2.88              & 7.93              & 0.84              & 2.24 \\
+$\rho_{\mathrm{opt}}$       & 2.31              & 4.22              & 3.44              & 7.50 \\
+$\rho^{*}$                  & \textbf{2.31}     & \textbf{4.22}     & \textbf{0.84}     & \textbf{2.24} \\
+Binding constraint          & $\rho_{\mathrm{opt}}$ & $\rho_{\mathrm{opt}}$
+                            & $\rho_{\mathrm{sat}}$ & $\rho_{\mathrm{sat}}$ \\
+\midrule
+$\Lambda(\rho^{*})$         & 3.31 & 5.22 & 2.47 & 4.81 \\
+\midrule
+Settling baseline (steps)   & 64   & 105  & 92   & 184 \\
+Settling proposed (steps)   & 37   & 85   & 64   & 147 \\
+Speedup                     & $1.73\times$ & $1.24\times$ & $1.44\times$ & $1.25\times$ \\
+\midrule
+$\|u\|_{\max}$ baseline     & 0.129 & 0.096 & 0.477 & 0.275 \\
+$\|u\|_{\max}$ proposed     & 0.318 & 0.370 & 0.820 & 0.818 \\
+Utilization baseline        & 12.9\% & 9.6\%  & 47.7\% & 27.5\% \\
+Utilization proposed        & 31.8\% & 37.0\% & 82.0\% & 81.8\% \\
+Violations                  & 0    & 0    & 0    & 0 \\
+\bottomrule
+\end{tabular}}
+\end{table}
+
+Table~\ref{tab:sf_vs_of} shows a consistent asymmetry: OF takes a
+larger $\rho^{*}$ ($4.22$ vs.\ $2.31$ in Case~1) yet delivers a
+smaller speedup ($1.24\times$ vs.\ $1.73\times$)---a root-locus effect
+of the cost rank.  Scaling the low-gain gain by $(1+\rho)$ drives the poles
+of $A + (1+\rho)BK(\gamma)$ toward the zeros of the low-gain loop
+$K(\gamma)(zI-A)^{-1}B$, and by Riccati monotonicity the
+rank-deficient $Q=\gamma\,C^{\!\top}\!C$ both weakens $P$ (the larger
+margin) and fixes the direction of $K(\gamma)$ so that only some loop
+zeros sit near the origin.  (Not for lack of penalization---$(A,C)$ observable means the optimal
+loop damps every mode; it is the \emph{scaled}, non-optimal gain that
+moves only a subset.)  For OF Case~1, the poles of $A + BK$ and
+$A + BK_{\mathrm{high}}$ ($K = \bar K W$) are
+\begin{align}
+\text{Baseline:}\ &\{0.951,\,0.951,\,0.946,\,0.946\},\notag\\
+\text{Proposed:}\ &\{0.947,\,0.947,\,\mathbf{0.706},\,\mathbf{0.009}\}:
+\end{align}
+two poles move sharply, two barely shift, and the slow pair sets
+settling; Case~2 is analogous.  The full-rank SF cost, by contrast,
+moves all four poles ($1.73\times$).  The rank of $Q$ thus trades
+margin against pole-movement effectiveness: full rank, small margin,
+uniform damping; rank-deficient, large margin, selective damping.
+
+
+%% Flush every remaining float here so that no figure or table can be
+%% typeset after the start of the Conclusion.
+\FloatBarrier
+
+%% =====================================================================
+\section{Conclusion}\label{sec:conclusion}
+%% =====================================================================
+
+We have combined low-and-high gain feedback with Q-learning into a
+fully model-free design for discrete-time saturated systems, in state-
+and output-feedback form.  On the state-feedback side, one Schur
+complement of the learned kernel exposes the Lyapunov matrix, and from
+it both the certified boost and its exact stability limit emerge in
+closed form---no identification, no further learning, no search.  The
+output-feedback extension builds its kernel from input--output
+histories via the parameterization of \citet{RizviLin2023book}; its
+central result is that the entire pipeline transports under one
+information-preserving substitution of the pseudoinverse for the
+inverse of the Lyapunov matrix.  The experiments show automatic selection of the binding constraint,
+faster settling without violation, and markedly higher utilization.  Output feedback gives a larger decrease bound but a smaller realized
+speedup: the rank of the cost weighting sets a structural trade-off
+between gain-boost margin and pole-movement effectiveness, one that to
+our knowledge has not been reported in the model-free
+saturated-control literature.
+Future work includes multi-agent input saturation, learning under
+disturbances and measurement noise, and the single-substitution
+principle for other rank-deficient parameterizations.
+
+
+%% =====================================================================
+\begingroup\small
+\begin{thebibliography}{}
+
+\bibitem[Bertsekas(2019)]{Bertsekas2019}
+Bertsekas, D.~P., 2019. Reinforcement Learning and Optimal Control.
+Athena Scientific, Belmont, MA.
+
+\bibitem[Dony et al.(2026)]{DonyRizviLin2026CDC}
+Dony, M.~N.-A.-A., Rizvi, S.~A.~A., Lin, Z., 2026. Model-free
+low-and-high gain Q-learning for discrete-time linear systems with
+actuator saturation. In: Proceedings of the IEEE Conference on
+Decision and Control. To appear.
+
+\bibitem[Hu and Lin(2001)]{HuLin2001}
+Hu, T., Lin, Z., 2001. Control Systems with Actuator Saturation:
+Analysis and Design. Birkh\"{a}user, Boston.
+
+\bibitem[Jiang and Jiang(2012)]{JiangJiang2012}
+Jiang, Y., Jiang, Z.-P., 2012. Computational adaptive optimal control
+for continuous-time linear systems with completely unknown dynamics.
+Automatica 48~(10), 2699--2704.
+
+\bibitem[Kleinman(1968)]{Kleinman1968}
+Kleinman, D.~L., 1968. On an iterative technique for Riccati equation
+computations. IEEE Transactions on Automatic Control 13~(1), 114--115.
+
+\bibitem[Lewis et al.(2012)]{LewisVrabieVamvoudakis2012}
+Lewis, F.~L., Vrabie, D., Vamvoudakis, K.~G., 2012. Reinforcement
+learning and feedback control: using natural decision methods to design
+optimal adaptive controllers. IEEE Control Systems Magazine 32~(6),
+76--105.
+
+\bibitem[Lin(1998)]{Lin1998}
+Lin, Z., 1998. Low Gain Feedback. Vol. 240 of Lecture Notes in Control
+and Information Sciences. Springer, London.
+
+\bibitem[Lin and Saberi(1993)]{LinSaberi1993}
+Lin, Z., Saberi, A., 1993. Semi-global exponential stabilization of
+linear systems subject to input saturation via linear feedbacks.
+Systems \& Control Letters 21~(3), 225--239.
+
+\bibitem[Lin and Saberi(1995)]{LinSaberi1995}
+Lin, Z., Saberi, A., 1995. A semi-global low-and-high gain design
+technique for linear systems with input saturation. International
+Journal of Robust and Nonlinear Control 5~(5), 381--398.
+
+\bibitem[Lin et al.(2000)]{LinSaberiStoorvogelMantri2000}
+Lin, Z., Saberi, A., Stoorvogel, A.~A., Mantri, R., 2000. An
+improvement to the low gain design for discrete-time linear systems
+subject to input saturation---solutions of semi-global output
+regulation problems. International Journal of Robust and Nonlinear
+Control 10~(3), 117--135.
+
+\bibitem[Rizvi and Lin(2018)]{RizviLin2018CDC}
+Rizvi, S.~A.~A., Lin, Z., 2018. Model-free global stabilization of
+discrete-time linear systems with saturation via data-driven
+Q-learning. In: Proceedings of the IEEE Conference on Decision and
+Control. pp. 2635--2640.
+
+\bibitem[Rizvi and Lin(2019)]{RizviLin2019IJRNC}
+Rizvi, S.~A.~A., Lin, Z., 2019. An iterative Q-learning scheme for the
+global stabilization of discrete-time linear systems subject to
+actuator saturation. International Journal of Robust and Nonlinear
+Control 29~(9), 2660--2672.
+
+\bibitem[Rizvi and Lin(2023)]{RizviLin2023book}
+Rizvi, S.~A.~A., Lin, Z., 2023. Reinforcement Learning-Based Feedback
+Control of Linear Systems with Actuator Saturation. Springer, Cham.
+
+\bibitem[Sussmann et al.(1994)]{SussmannSontagYang1994}
+Sussmann, H.~J., Sontag, E.~D., Yang, Y., 1994. A general result on the
+stabilization of linear systems using bounded controls. IEEE
+Transactions on Automatic Control 39~(12), 2411--2425.
+
+\bibitem[Sutton and Barto(2018)]{SuttonBarto2018}
+Sutton, R.~S., Barto, A.~G., 2018. Reinforcement Learning: An
+Introduction, 2nd Edition. MIT Press, Cambridge, MA.
+
+\bibitem[Wang et al.(2012a)]{WangGripSaberiJohansen2012}
+Wang, X., Grip, H.~F., Saberi, A., Johansen, T.~A., 2012a. A new
+low-and-high gain feedback design using MPC for global stabilization of
+linear systems subject to input saturation. In: Proceedings of the
+American Control Conference. pp. 2337--2342.
+
+\bibitem[Wang et al.(2012b)]{WangSaberiStoorvogelSannuti2012}
+Wang, X., Saberi, A., Stoorvogel, A.~A., Sannuti, P., 2012b.
+Simultaneous global external and internal stabilization of linear
+time-invariant discrete-time systems subject to actuator saturation.
+Automatica 48~(5), 1100--1104.
+
+\bibitem[Watkins and Dayan(1992)]{WatkinsDayan1992}
+Watkins, C.~J.~C.~H., Dayan, P., 1992. Q-learning. Machine Learning
+8~(3--4), 279--292.
+
+\bibitem[Yang et al.(1997)]{YangSontagSussmann1997}
+Yang, Y., Sontag, E.~D., Sussmann, H.~J., 1997. Global stabilization of
+linear discrete-time systems with bounded feedback. Systems \& Control
+Letters 30~(1), 1--7.
+
+\end{thebibliography}
+\endgroup
+
+\end{document}
