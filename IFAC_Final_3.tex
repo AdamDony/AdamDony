@@ -39,7 +39,7 @@
 \renewcommand{\topfraction}{0.9}
 \renewcommand{\bottomfraction}{0.9}
 \renewcommand{\textfraction}{0.05}
-\renewcommand{\floatpagefraction}{0.8}
+\renewcommand{\floatpagefraction}{0.92}
 
 \DeclareMathOperator{\diag}{diag}
 \DeclareMathOperator{\col}{col}
@@ -805,6 +805,8 @@ Fig.~\ref{fig:sf_conv_ex3} shows convergence in only $\sim$15 iterations---the f
 \subsubsection{Output Feedback Results}
 Output feedback Q-learning converges in $\sim$25 iterations with $\|G - G^*\| < 10^{-8}$, and the formation trajectories match the state feedback case. Trajectory figures are omitted as they visually coincide with the state feedback results.
 
+\FloatBarrier
+
 \subsection{Robustness to Parametric Uncertainty}
 \label{subsec:robustness}
 
@@ -814,7 +816,7 @@ Fig.~\ref{fig:robustness} presents four analyses. Panel~(a) shows that, in this 
 
 \begin{figure*}[!htbp]
     \centering
-    \includegraphics[width=\textwidth]{robustness_simulation.png}
+    \includegraphics[width=0.9\textwidth]{robustness_simulation.png}
     \caption{Robustness analysis under parametric uncertainty $\Delta A_{12}$. Top-left: stability margin. Top-right: cost penalty. Bottom-left: velocity trajectories at $\delta = 0.3$ (solid = model-based, dashed = Q-learned). Bottom-right: gain comparison at $\delta = 0.5$.}
     \label{fig:robustness}
 \end{figure*}
