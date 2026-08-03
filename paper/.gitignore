@@ -1,0 +1,8 @@
+*.aux
+*.log
+*.out
+*.spl
+*.toc
+*.bbl
+*.blg
+missfont.log
