@@ -11,7 +11,9 @@
 \usepackage{microtype}
 \setlength{\emergencystretch}{2em}
 \usepackage{placeins}
+\usepackage{needspace}
 \usepackage{mathtools}
+\urlstyle{same}
 \usepackage{tikz}
 \usetikzlibrary{arrows.meta, positioning, shapes.geometric, fit}
 %% Float-placement tuning: allow wide figure* floats to share a page
@@ -58,7 +60,7 @@
 \title{Data-Driven Q-Learning for Consensus and Multi-Consensus Control of Discrete-Time Linear Multi-Agent Systems}
 \author[ttu]{Md~Nur-A-Adam~Dony}
 \ead{mdony42@tntech.edu}
-\author[ttu]{Syed~Ali~Asad~Rizvi\corref{cor}}
+\author[ttu]{Syed~Ali~Asad~Rizvi\texorpdfstring{\corref{cor}}{}}
 \ead{srizvi@tntech.edu}
 \cortext[cor]{Corresponding author.}
 \address[ttu]{Department of Electrical and Computer Engineering, Tennessee Technological University, Cookeville, TN 38505, USA}
@@ -672,7 +674,7 @@ the second line by Proposition~\ref{prop:disagreement}, so the protocol~\eqref{e
 \label{sec:results}
 %% ===================================================================
 We validate the approach on two scenarios adapted from~\cite{cacace2024}---multi-leader following ($N{=}9$) and formation control ($N{=}6$, $T = 0.1$~s)---together with a robustness study and a vehicle-platoon example. Every scenario is executed under \emph{both} state feedback and output feedback, and validation is performed by direct comparison with the model-based design of~\cite{cacace2024}: the Q-learned gains are checked for exact numerical agreement with the DARE solution, and the output-feedback deployment is checked for exact agreement with the state-feedback deployment (Proposition~\ref{prop:disagreement}). All simulations use $R = I_m$ and VI, and the output-feedback runs employ the $n$-step dead-beat filter warm-up of Section~\ref{sec:ofb_ql}.
-\subsection{Example 1: Multi-Leader Following ($N = 9$, $\mu = 3$)}
+\subsection{Example 1: Multi-Leader Following (\texorpdfstring{$N = 9$, $\mu = 3$}{N = 9, mu = 3})}
 \label{subsec:sim1}
 We consider $N = 9$ agents with sampled double integrator dynamics ($T = 1$)
 \begin{equation}
@@ -769,7 +771,7 @@ Fig.~\ref{fig:traj_ex1} (right) shows the multi-consensus trajectories under the
     \caption{Multi-consensus trajectories for Example~1. Left: state feedback Q-learned gains (top: consensus error; rows 2--4: centralized, distributed with $\gamma = 2$, standard protocol; the first $n = 2$ steps are the zero-input warm-up). Right: output feedback deployment via the reconstructed disagreement~\eqref{eq:disagreement}; the two coincide to machine precision, validating Proposition~\ref{prop:disagreement}.}
     \label{fig:traj_ex1}
 \end{figure*}
-\subsection{Example 2: Formation Control ($N = 6$, $T = 0.1$~s)}
+\subsection{Example 2: Formation Control (\texorpdfstring{$N = 6$, $T = 0.1$~s}{N = 6, T = 0.1 s})}
 \label{subsec:sim2}
 We consider $N = 6$ continuous-time double integrator agents over the ring digraph in Fig.~\ref{fig:graph6}, which has one reach. Setting $x_i = \col(\zeta_i - \sigma_i, \dot{\zeta}_i)$, the discrete-time model with $T = 0.1$~s has $n = 4$ states and $m = 2$ inputs, and position-only measurements $C = [\,I_2 \;\; 0\,]$ ($p = 2$). We use $Q_y = 5I_2$, hence $Q = C^\top Q_y C$ (Lemma~\ref{lem:psdQ}), for both feedback types so that the state and output feedback designs solve the same LQR problem. The nonzero Laplacian eigenvalues of the directed ring satisfy $\bar{r} = 1 - \cos(2\pi/6) = 0.5$ \emph{exactly}, so the coupling gain must satisfy $\kappa > 2$ strictly; we take $\kappa = 2.5$, giving $\kappa\bar{r} = 1.25 > 1$. The formation is a regular hexagon, representative of UAV coordination problems~\cite{dony2021distributed,dony2021robust}; the data-driven approach is relevant here because the discrete-time model $A = \exp(A_c T)$ inherits unavoidable discretization error.
 \begin{figure}[!htbp]
@@ -819,12 +821,12 @@ With $\tilde{l} = mn + pn + m = 18$ and $\tilde{N}_p = 171$, output feedback Q-l
     \caption{Formation control for Example~2 with state feedback Q-learned gains ($T = 0.1$~s, $\kappa = 2.5$). Left column: centralized; right column: distributed ($\gamma = 35$). Agents converge to the hexagonal formation within ${\sim}5$~s.}
     \label{fig:sf_traj_ex2}
 \end{figure}
-\begin{figure*}[!t]
+\begin{figure}[!t]
     \centering
-    \includegraphics[width=0.3\textwidth]{fig_form_of_traj.png}
+    \includegraphics[width=0.75\columnwidth]{fig_form_of_traj.png}
     \caption{Formation control for Example~2 with output feedback Q-learned gains, position measurements only ($C = [I_2\;0]$), deployed via the reconstructed disagreement~\eqref{eq:disagreement}. The trajectories coincide with Fig.~\ref{fig:sf_traj_ex2} to machine precision.}
     \label{fig:ofb_traj_ex2}
-\end{figure*}
+\end{figure}
 \subsection{Robustness to Parametric Uncertainty}
 \label{subsec:robustness}
 Because the Bellman equations~\eqref{eq:bellman_consensus} and~\eqref{eq:ofb_bellman} are built entirely from measured data, the Q-learned gains are matched to the true plant from which the data is collected. To quantify this advantage under model uncertainty, we consider Example~1 with a perturbed system matrix $A_{\mathrm{true}} = A_{\mathrm{nom}} + \Delta A$, where $\Delta A = \delta \begin{bsmallmatrix} 0 & 1 \\ 0 & 0 \end{bsmallmatrix}$ represents uncertainty in the $(1,2)$ entry of the double integrator. The model-based approach computes gains from the nominal $A_{\mathrm{nom}}$ via the DARE, while Q-learning extracts gains from data collected on the true (perturbed) system. Since the state and output feedback algorithms recover the identical $(F,G)$ (Theorems~\ref{thm:sf_convergence} and~\ref{thm:ofb_convergence}), a single Q-learned series represents both.
@@ -888,8 +890,8 @@ Example & $n$ & $m$ & Method & Iterations & Final accuracy \\
 \bottomrule
 \end{tabular}}
 \end{table}
-\FloatBarrier
 %% ===================================================================
+\Needspace*{10\baselineskip}
 \section{Discussion}
 \label{sec:discussion}
 %% ===================================================================
@@ -900,7 +902,7 @@ Each iteration of Algorithm~\ref{alg:sf_ql} solves an $l(l+1)/2$-dimensional lea
 \subsection{Scalability with Network Size}
 \label{subsec:scalability}
 Since the DARE depends only on $(A,B,Q)$ and not on the graph, Algorithms~\ref{alg:sf_ql}--\ref{alg:ofb_ql} run once on a single agent and the gains deploy across all $N$ agents: the learning phase is identical for 5 or 500 agents. This contrasts with distributed RL methods such as~\cite{zhang2011}, where every agent learns concurrently and the cost scales with $N$.
-\subsection{Model-Free Selection of the Distributed Iteration Depth $\gamma$}
+\subsection{Model-Free Selection of the Distributed Iteration Depth \texorpdfstring{$\gamma$}{gamma}}
 \label{subsec:gamma}
 The minimum number of distributed consensus steps $\gamma_{\min}$ from~\cite[Thm.~3.4]{cacace2024} depends on $\rho(G)$ and $\rho(A - BK^*)$. The spectral radius $\rho(G) = \rho(H_{uu}^* - I_m)$ is directly available from the converged H-matrix without any model knowledge. Quantities involving the closed-loop matrix $A - BK^*$, however, are not directly available from $H^*$ alone. In a fully data-driven implementation, one may collect closed-loop data under the converged policy $K^*$ and estimate
 \begin{equation}
@@ -990,7 +992,7 @@ M.N.A. Dony, M.E. Khallil, Adaptive reinforcement learning with control barrier 
 \bibitem{dony2026battery}
 M.N.A. Dony, B. Arhin, Data-driven distributed battery state-of-charge balancing using neural network-based open circuit voltage learning, IFAC J. Syst. Control 36 (2026) 100415.
 \bibitem{dony2024koopman}
-M.N.A. Dony, Integrating Koopman theory and Lyapunov stability for enhanced model predictive control in nonlinear systems, ResearchGate preprint, 2024. https://doi.org/10.13140/RG.2.2.17950.31046.
+M.N.A. Dony, Integrating Koopman theory and Lyapunov stability for enhanced model predictive control in nonlinear systems, ResearchGate preprint, 2024. \url{https://doi.org/10.13140/RG.2.2.17950.31046}.
 \bibitem{caughman2006}
 J.S. Caughman, J.J.P. Veerman, Kernels of directed graph Laplacians, Electron. J. Combin. 13 (1) (2006) 39.
 \bibitem{hewer1971}
